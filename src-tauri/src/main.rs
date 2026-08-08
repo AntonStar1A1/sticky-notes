@@ -136,7 +136,8 @@ fn main() {
             
             let conn = Connection::open(db_path).expect("failed to open database");
             db::init_db(&conn).expect("failed to initialize database");
-            
+            db::migrate(&conn).expect("failed to migrate database");
+
             app.manage(DbConn(Mutex::new(conn)));
 
             let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
