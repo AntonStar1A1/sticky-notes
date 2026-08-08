@@ -82,8 +82,15 @@ pub fn init_db(conn: &Connection) -> Result<()> {
 }
 
 pub fn migrate(conn: &Connection) -> Result<()> {
+    // meta.value 是 TEXT,必须按字符串读再解析;直接 get::<i64> 会因类型不符恒失败,
+    // 被 unwrap_or(0) 吞掉后每次启动都重跑迁移,把全部便签位置/尺寸重置(实测复现)
     let version: i64 = conn
-        .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0))
+        .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| {
+            let s: String = r.get(0)?;
+            s.parse::<i64>().map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+            })
+        })
         .unwrap_or(0);
 
     if version < 2 {
