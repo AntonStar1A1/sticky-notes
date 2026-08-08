@@ -34,27 +34,40 @@ fn get_notes(state: tauri::State<DbConn>) -> Result<Vec<db::Note>, String> {
     db::get_all_notes(&conn).map_err(|e| e.to_string())
 }
 
+// 注意:Windows 上在同步 command 里创建 WebviewWindow 会死锁(wry/WebView2 已知问题),
+// 创建窗口的 command 必须声明为 async(见 tauri 官方文档 WebviewWindowBuilder 的 Known issues)。
 #[tauri::command]
-fn add_note(app: tauri::AppHandle, state: tauri::State<DbConn>, title: String, note_type: String, category_id: Option<i64>) -> Result<db::Note, String> {
+async fn add_note(app: tauri::AppHandle, state: tauri::State<'_, DbConn>, title: String, note_type: String, category_id: Option<i64>) -> Result<db::Note, String> {
     let conn = state.0.lock().unwrap();
+    // 新建便签:展开态(360×420)、默认置顶、不透明
     let note = db::Note {
         id: 0,
         title,
         content: String::new(),
         note_type,
         category_id,
-        x: 100.0,
-        y: 100.0,
-        width: 200.0,
-        height: 200.0,
-        opacity: 0.8,
-        is_pinned: false,
+        x: 0.0,
+        y: 0.0,
+        width: 360.0,
+        height: 420.0,
+        opacity: 1.0,
+        is_pinned: true,
         created_at: String::new(),
         updated_at: String::new(),
     };
-    let result = db::add_note(&conn, &note).map_err(|e| e.to_string());
+    let mut note = db::add_note(&conn, &note).map_err(|e| e.to_string())?;
+    let window = create_note_window(&app, &note).map_err(|e| e.to_string())?;
+    if let Ok(pos) = window.outer_position() {
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let logical = pos.to_logical::<f64>(scale);
+        note.x = logical.x;
+        note.y = logical.y;
+        let _ = db::update_note(&conn, &note);
+    }
+    let _ = window.show();
+    let _ = window.set_focus();
     let _ = app.emit("notes-updated", ());
-    result
+    Ok(note)
 }
 
 #[tauri::command]
@@ -73,10 +86,31 @@ fn update_note(app: tauri::AppHandle, state: tauri::State<DbConn>, note: db::Not
 
 #[tauri::command]
 fn delete_note(app: tauri::AppHandle, state: tauri::State<DbConn>, id: i64) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(&format!("note-{}", id)) {
+        let _ = window.destroy();
+    }
     let conn = state.0.lock().unwrap();
     let result = db::delete_note(&conn, id).map_err(|e| e.to_string());
     let _ = app.emit("notes-updated", ());
     result
+}
+
+#[tauri::command]
+fn get_note(state: tauri::State<DbConn>, id: i64) -> Result<db::Note, String> {
+    let conn = state.0.lock().unwrap();
+    db::get_note_by_id(&conn, id).map_err(|e| e.to_string())
+}
+
+// open_note 也会创建窗口,同样需要 async 避免 Windows 死锁
+#[tauri::command]
+async fn open_note(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+    let conn = app.state::<DbConn>();
+    let note = db::get_note_by_id(&conn.0.lock().unwrap(), id).map_err(|e| e.to_string())?;
+    let window = create_note_window(&app, &note).map_err(|e| e.to_string())?;
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = window.emit("highlight", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -127,6 +161,40 @@ fn show_pinned_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn centered_position(app: &tauri::AppHandle, w: f64, h: f64) -> (f64, f64) {
+    let Some(cursor) = app.cursor_position().ok() else {
+        return (100.0, 100.0);
+    };
+    let Some(monitor) = app.monitor_from_point(cursor.x, cursor.y).ok().flatten() else {
+        return (100.0, 100.0);
+    };
+    let msize = monitor.size().to_logical::<f64>(monitor.scale_factor());
+    let mpos = monitor.position().to_logical::<f64>(monitor.scale_factor());
+    let x = mpos.x + ((msize.width - w) / 2.0).max(0.0);
+    let y = mpos.y + ((msize.height - h) / 2.0).max(0.0);
+    (x, y)
+}
+
+fn create_note_window(app: &tauri::AppHandle, note: &db::Note) -> tauri::Result<tauri::WebviewWindow> {
+    let label = format!("note-{}", note.id);
+    if let Some(w) = app.get_webview_window(&label) {
+        return Ok(w);
+    }
+    let (x, y) = centered_position(app, note.width, note.height);
+    tauri::WebviewWindowBuilder::new(
+        app,
+        &label,
+        tauri::WebviewUrl::App(format!("note.html?id={}", note.id).into()),
+    )
+    .title("便签")
+    .inner_size(note.width, note.height)
+    .position(x, y)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(note.is_pinned)
+    .build()
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -171,6 +239,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_categories, add_category, delete_category,
             get_notes, add_note, update_note, delete_note,
+            get_note, open_note,
             get_all_todos, add_todo, update_todo, delete_todo,
             show_pinned_window
         ])
