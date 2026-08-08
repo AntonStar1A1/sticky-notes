@@ -69,9 +69,17 @@ fn create_note(app: &tauri::AppHandle, title: String, note_type: String, categor
     Ok(note)
 }
 
+// 托盘菜单 / 全局快捷键共用的新建便签入口:按 note_type 推导标题(text→新建便签,todo→新建待办),
+// 再走共享的 create_note。快捷键回调由 global-hotkey 在后台线程派发,可同步调用;
+// 托盘菜单 handler 在主线程事件循环上,同步建窗会死锁(见下方 on_menu_event),必须经 spawn 调用本函数。
+fn new_note_via(app: &tauri::AppHandle, note_type: &str) -> Result<db::Note, String> {
+    let title = if note_type == "todo" { "新建待办" } else { "新建便签" };
+    create_note(app, title.to_string(), note_type.to_string(), None)
+}
+
 // 注意:Windows 上在同步 command 里创建 WebviewWindow 会死锁(wry/WebView2 已知问题),
 // 创建窗口的 command 必须声明为 async(见 tauri 官方文档 WebviewWindowBuilder 的 Known issues)。
-// 因此这里保持 async 包装,事件处理器(托盘/快捷键)直接同步调用 create_note 不受影响。
+// 因此这里保持 async 包装;事件处理器(托盘/快捷键)经 new_note_via 调用 create_note。
 #[tauri::command]
 async fn add_note(app: tauri::AppHandle, state: tauri::State<'_, DbConn>, title: String, note_type: String, category_id: Option<i64>) -> Result<db::Note, String> {
     let _ = state;
@@ -243,8 +251,8 @@ fn main() {
                     if !matches!(event.state(), tauri_plugin_global_shortcut::ShortcutState::Pressed) {
                         return;
                     }
-                    let title = if nt == "todo" { "新建待办" } else { "新建便签" };
-                    let _ = create_note(app, title.to_string(), nt.clone(), None);
+                    // global-hotkey 在后台线程派发回调,此处可同步建窗
+                    let _ = new_note_via(app, &nt);
                 }) {
                     eprintln!("注册全局快捷键 {} 失败(可能与其他应用冲突),跳过:{}", s, e);
                 }
@@ -268,9 +276,14 @@ fn main() {
                     }
                 }
                 "new_text" | "new_todo" => {
+                    // 菜单事件在主线程派发,同步建窗会死锁(tauri WebviewWindowBuilder Known issues:
+                    // "deadlocks when used in a synchronous command or event handlers")。
+                    // 挪到异步运行时线程执行;AppHandle 可克隆,闭包 move 捕获。
                     let note_type = if event.id().as_ref() == "new_text" { "text" } else { "todo" };
-                    let title = if note_type == "todo" { "新建待办" } else { "新建便签" };
-                    let _ = create_note(&app.clone(), title.to_string(), note_type.to_string(), None);
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = new_note_via(&app, note_type);
+                    });
                 }
                 "quit" => {
                     app.exit(0);
