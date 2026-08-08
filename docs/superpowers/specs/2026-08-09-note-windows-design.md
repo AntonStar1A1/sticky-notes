@@ -139,3 +139,23 @@
 - `src/App.tsx`(画布 → 管理器列表)、`src/types.ts`(复用)
 - `vite.config.ts`(note 入口,删 pinned 入口)
 - 删除 `pinned.html`、`src/PinnedApp.tsx`、`src/pinned.tsx`、`src/pinned.css`
+
+## 11. 实现偏差记录(Task 6 完整回归验证后回写)
+
+以下为验证过程中确认的设计与实现差异(不修改代码,仅记录;终审修复波处理):
+
+| # | 设计原文 | 实际实现 | 说明 |
+|---|---|---|---|
+| 1 | §3 新建便签窗口落在**鼠标所在显示器中央附近(级联偏移)**;§6 新建默认值含"屏幕级联位置" | `create_note_window` 一律按**光标所在显示器正中**定位(`centered_position`),无级联偏移;创建后把实际居中位置回写 DB | 实测单屏 1280×800 落位 (460,190) |
+| 2 | §3 便签 x/y/width/height 语义变为**屏幕坐标** | x/y 仅创建时回写一次;**拖拽后不落库**;重开窗口时 `create_note_window` 忽略 DB x/y,仍按光标居中摆放 | 重启后便签回到"光标中央"而非上次拖拽位置 |
+| 3 | §5 双击条目 → 高亮闪烁 ~1.5s | 复用窗口:emit 1 次,`hlTimer=1500ms`,实测 ~1.3-1.5s 一致;**新建窗口路径**延迟 400/800/1200ms 重试 emit 3 次(页面 `listen` 未注册会丢事件),首次打开闪烁总时长 ~2.7s | 实现细节:重试机制 |
+| 4 | §9 快捷键冲突时**提示注册失败** | 实际为 `eprintln!` 控制台报错并 `continue` 跳过该项,无 UI 提示,不阻塞启动 | Ctrl+Alt+T 实测被其他应用占用时按此跳过 |
+| 5 | §10 涉及文件、托盘菜单行为 | `add_note` / `open_note` 声明为 **async command**(Windows 上同步建窗会死锁,tauri 官方 Known issues);托盘 `new_text`/`new_todo` 经 `tauri::async_runtime::spawn` 异步建窗 | 死锁规避,行为等价 |
+| 6 | §6 v1→v2 迁移 | `schema_version` 以 **TEXT 读取再 `parse::<i64>()`**;修复前用 `get::<i64>` 读 TEXT 恒失败被 `unwrap_or(0)` 吞掉 → 每次启动重跑迁移重置所有便签位置/尺寸(实测复现的历史 bug) | 迁移公式实测:x=y=100+(id-MIN(id))×40、240×200、meta='2';分类/待办保留;二次启动不重跑 |
+| 7 | §3 配套 capabilities 权限 | `windows: ["main", "note-*"]`,含 start-dragging / set-size / set-always-on-top / show / hide / close / set-focus | 一致 |
+| 8 | §8 清单 1"可拖到屏幕任意位置" | OS 级拖拽(SC_MOVE)实测可移动;真实鼠标拖动在测试环境被全屏 LockApp 覆盖层拦截,端到端真机拖拽留待用户确认 | 环境限制,见验证报告 |
+| 9 | §8 清单 10"托盘菜单四项全部可用" | 以 WM_COMMAND 消息序列验证(show=1000/new_text=1001/new_todo=1002/quit=1003,muda 计数器实测);"退出"实测 `app.exit(0)` 进程干净退出(exit 0) | 真实鼠标点击留待用户真机确认 |
+| 10 | §8 清单 11"任何应用内呼出" | 以 WM_HOTKEY 验证(Ctrl+Alt+N id=589856 → 新建文字便签;Ctrl+Alt+T id=589862 注册冲突跳过) | 非当前应用内场景未真机按键验证 |
+| 11 | 便签窗口标题 | `.title("便签")` 在 GetWindowTextW 侧呈现 UTF-16 乱码(U+7E0A U+007E U+007B),前置已有(baseline 即存在,影响仅限带标题栏的窗口/任务栏);无边框便签不显示标题 | 观察项,不在 11 项清单内,未修复 |
+
+**验证环境限制(记录):** 单显示器 1280×800、scale 1.0,多屏居中/级联未真机验证;测试期间全屏 LockApp 覆盖层会拦截系统级真实鼠标输入,真实鼠标拖拽/托盘点击/全局快捷键按键均以消息级注入验证。
