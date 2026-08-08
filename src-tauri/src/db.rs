@@ -70,9 +70,36 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
         INSERT OR IGNORE INTO categories (name) VALUES ('默认'), ('工作'), ('生活'), ('学习'), ('灵感');
         "
     )?;
+    Ok(())
+}
+
+pub fn migrate(conn: &Connection) -> Result<()> {
+    let version: i64 = conn
+        .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    if version < 2 {
+        // v1 → v2:旧坐标是主窗口内相对坐标,无迁移价值,重置为屏幕级联位置
+        conn.execute_batch(
+            "UPDATE notes SET
+                x = 100 + (id - (SELECT MIN(id) FROM notes)) * 40.0,
+                y = 100 + (id - (SELECT MIN(id) FROM notes)) * 40.0,
+                width = 240.0,
+                height = 200.0;"
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')",
+            [],
+        )?;
+    }
     Ok(())
 }
 
