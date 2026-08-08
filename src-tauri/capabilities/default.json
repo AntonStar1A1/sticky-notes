@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "默认权限配置",
-  "windows": ["main", "pinned", "note-*"],
+  "windows": ["main", "note-*"],
   "permissions": [
     "core:default",
     "core:window:default",

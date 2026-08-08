@@ -9,7 +9,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        pinned: resolve(__dirname, 'pinned.html'),
         note: resolve(__dirname, 'note.html'),
       },
     },

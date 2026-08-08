@@ -265,9 +265,6 @@ function App() {
         </div>
 
         <div className="sidebar-footer">
-          <button className="pinned-btn" onClick={() => invoke('show_pinned_window')}>
-            📌 置顶列表
-          </button>
           <div className="add-note-buttons">
             <button className="add-btn text" onClick={() => addNote('text')}>
               + 文字便签
