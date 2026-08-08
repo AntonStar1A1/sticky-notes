@@ -113,10 +113,16 @@ function NoteApp() {
     const w = expanded ? 360 : 240
     const h = expanded ? 420 : 200
     await win.setSize(new LogicalSize(w, h))
-    if (noteRef.current) {
-      pendingRef.current.note = { ...noteRef.current, width: w, height: h }
-      schedule(() => {})
-    }
+    // 新尺寸必须同步进 noteRef / state,否则 300ms 防抖窗口内的字段编辑会以旧尺寸重建整条 note 覆盖(pending 整体替换)
+    schedule(() => {
+      setNote((prev) => {
+        if (!prev) return prev
+        const next = { ...prev, width: w, height: h }
+        noteRef.current = next
+        pendingRef.current.note = next
+        return next
+      })
+    })
     setExpanded(expanded)
   }, [schedule])
 
@@ -139,11 +145,17 @@ function NoteApp() {
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
-      if (noteRef.current) {
-        pendingRef.current.note = { ...noteRef.current, width: lastW, height: lastH }
-        setExpanded(lastW >= EXPANDED_MIN_WIDTH)
-        schedule(() => {})
-      }
+      // 同上:最终尺寸同步进 noteRef / state,防止防抖窗口内的编辑以旧尺寸重建
+      schedule(() => {
+        setNote((prev) => {
+          if (!prev) return prev
+          const next = { ...prev, width: lastW, height: lastH }
+          noteRef.current = next
+          pendingRef.current.note = next
+          return next
+        })
+      })
+      setExpanded(lastW >= EXPANDED_MIN_WIDTH)
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
