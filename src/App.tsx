@@ -97,11 +97,13 @@ function App() {
     }
   }, [showError])
 
-  // 置顶切换:仅修改 is_pinned 字段,其余字段(含 x/y)原样传回,不改写坐标
+  // 置顶切换:先取 DB 最新记录再翻 is_pinned,其余字段(含 x/y)以最新值为准回写,
+  // 避免用过期的本地快照整行覆盖便签窗口已静默落库的编辑(便签窗口编辑不广播)
   const togglePin = useCallback(async (note: Note) => {
-    const updated = { ...note, is_pinned: !note.is_pinned }
-    setNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)))
     try {
+      const latest = await invoke<Note>('get_note', { id: note.id })
+      const updated = { ...latest, is_pinned: !latest.is_pinned }
+      setNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)))
       // Rust 侧仅在置顶状态变化时广播 notes-updated,列表随后刷新确认
       await invoke('update_note', { note: updated })
     } catch (e) {
@@ -302,7 +304,11 @@ function App() {
                 key={note.id}
                 data-id={note.id}
                 className={`note-row ${note.is_pinned ? 'pinned' : ''}`}
-                onDoubleClick={() => openNote(note.id)}
+                onDoubleClick={(e) => {
+                  // 行内按钮(置顶/删除)上的双击不打开便签,避免误开
+                  if ((e.target as HTMLElement).closest('button')) return
+                  openNote(note.id)
+                }}
                 onContextMenu={(e) => {
                   e.stopPropagation()
                   handleContextMenu(e, note.id)
@@ -324,14 +330,20 @@ function App() {
                   <button
                     className="row-btn pin"
                     title={note.is_pinned ? '取消置顶' : '置顶'}
-                    onClick={() => togglePin(note)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      togglePin(note)
+                    }}
                   >
                     {note.is_pinned ? '取消置顶' : '置顶'}
                   </button>
                   <button
                     className="row-btn delete"
                     title="删除便签及其窗口"
-                    onClick={() => deleteNote(note.id)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteNote(note.id)
+                    }}
                   >
                     删除
                   </button>
