@@ -154,6 +154,30 @@ pub fn get_all_notes(conn: &Connection) -> Result<Vec<Note>> {
     Ok(notes)
 }
 
+pub fn get_note_by_id(conn: &Connection, id: i64) -> Result<Note> {
+    conn.query_row(
+        "SELECT id, title, content, note_type, category_id, x, y, width, height, opacity, is_pinned, created_at, updated_at FROM notes WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(Note {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                content: row.get(2)?,
+                note_type: row.get(3)?,
+                category_id: row.get(4)?,
+                x: row.get(5)?,
+                y: row.get(6)?,
+                width: row.get(7)?,
+                height: row.get(8)?,
+                opacity: row.get(9)?,
+                is_pinned: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+            })
+        },
+    )
+}
+
 pub fn add_note(conn: &Connection, note: &Note) -> Result<Note> {
     conn.execute(
         "INSERT INTO notes (title, content, note_type, category_id, x, y, width, height, opacity, is_pinned) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",

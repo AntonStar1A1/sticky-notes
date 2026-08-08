@@ -1,0 +1,59 @@
+/* 便签窗口骨架(Task 3 起补充完整交互样式) */
+
+.note-root {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: transparent; /* 窗口整体透明,内容区域由各自卡片/区块承担 */
+  overflow: hidden;
+  user-select: none;
+  font-family: 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+}
+
+.note-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  box-sizing: border-box;
+  cursor: move;
+  -webkit-app-region: drag; /* 无边框窗口标题区可拖 */
+}
+
+.note-title-text {
+  font-size: 14px;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-header button {
+  border: none;
+  background: transparent;
+  color: #888;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.note-header button:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #333;
+}
+
+/* 预留:正文区,Task 3 使用 */
+.note-body {
+  position: absolute;
+  top: 36px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}

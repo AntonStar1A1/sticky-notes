@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         pinned: resolve(__dirname, 'pinned.html'),
+        note: resolve(__dirname, 'note.html'),
       },
     },
   },
