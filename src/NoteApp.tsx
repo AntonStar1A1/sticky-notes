@@ -19,7 +19,8 @@ function NoteApp() {
 
   return (
     <div className="note-root" onMouseDown={(e) => {
-      if (e.button === 0 && !(e.target as HTMLElement).closest('.note-body')) {
+      // 标题栏拖窗;但按钮等交互元素(× 等)不触发拖拽,否则真实鼠标按下会被 drag 吞掉
+      if (e.button === 0 && !(e.target as HTMLElement).closest('.note-body, button')) {
         getCurrentWindow().startDragging().catch(() => {})
       }
     }}>
