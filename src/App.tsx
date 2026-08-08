@@ -1,74 +1,30 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import './App.css'
 import type { Category, Note, TodoItem, ContextMenu } from './types'
 
-const SAVE_DEBOUNCE_MS = 300
-
 function App() {
   const [notes, setNotes] = useState<Note[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [todos, setTodos] = useState<Record<number, TodoItem[]>>({})
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null)
-  const [activeId, setActiveId] = useState<number | null>(null)
-  const [highestZ, setHighestZ] = useState(100)
-  const [zMap, setZMap] = useState<Record<number, number>>({})
+  const [search, setSearch] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [isAddingCategory, setIsAddingCategory] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const errorTimerRef = useRef<number | null>(null)
 
-  // —— 防抖持久化:本地状态即时更新,落库统一延迟合并,避免每次按键都写库 + 全量广播 ——
-  const notesRef = useRef<Note[]>([])
-  useEffect(() => {
-    notesRef.current = notes
-  }, [notes])
-
-  const pendingIdsRef = useRef<Set<number>>(new Set())
-  const flushTimerRef = useRef<number | null>(null)
-  const pendingTodosRef = useRef<Map<number, TodoItem>>(new Map())
-  const todoTimerRef = useRef<number | null>(null)
-
-  const flushNotes = useCallback(async () => {
-    if (flushTimerRef.current) {
-      window.clearTimeout(flushTimerRef.current)
-      flushTimerRef.current = null
-    }
-    const ids = Array.from(pendingIdsRef.current)
-    pendingIdsRef.current.clear()
-    const toSave = ids
-      .map((id) => notesRef.current.find((n) => n.id === id))
-      .filter((n): n is Note => !!n)
-    if (toSave.length > 0) {
-      await Promise.all(toSave.map((n) => invoke('update_note', { note: n })))
-    }
+  // —— 可见错误提示:console.error + 顶部横幅,4 秒自动消失 ——
+  const showError = useCallback((msg: string) => {
+    console.error(msg)
+    setErrorMsg(msg)
+    if (errorTimerRef.current) window.clearTimeout(errorTimerRef.current)
+    errorTimerRef.current = window.setTimeout(() => setErrorMsg(null), 4000)
   }, [])
-
-  const scheduleFlush = useCallback((noteId: number) => {
-    pendingIdsRef.current.add(noteId)
-    if (flushTimerRef.current) window.clearTimeout(flushTimerRef.current)
-    flushTimerRef.current = window.setTimeout(flushNotes, SAVE_DEBOUNCE_MS)
-  }, [flushNotes])
-
-  const flushTodos = useCallback(async () => {
-    if (todoTimerRef.current) {
-      window.clearTimeout(todoTimerRef.current)
-      todoTimerRef.current = null
-    }
-    const items = Array.from(pendingTodosRef.current.values())
-    pendingTodosRef.current.clear()
-    if (items.length > 0) {
-      await Promise.all(items.map((it) => invoke('update_todo', { item: it })))
-    }
-  }, [])
-
-  const scheduleTodoFlush = useCallback((item: TodoItem) => {
-    pendingTodosRef.current.set(item.id, item)
-    if (todoTimerRef.current) window.clearTimeout(todoTimerRef.current)
-    todoTimerRef.current = window.setTimeout(flushTodos, SAVE_DEBOUNCE_MS)
-  }, [flushTodos])
 
   const groupTodos = (items: TodoItem[]): Record<number, TodoItem[]> => {
     const map: Record<number, TodoItem[]> = {}
@@ -79,6 +35,7 @@ function App() {
     return map
   }
 
+  // —— 只读刷新:拉分类 + 便签列表 + 全部待办(绝不写回任何坐标) ——
   const loadAll = useCallback(async () => {
     const [cats, notesData, todosData] = await Promise.all([
       invoke<Category[]>('get_categories'),
@@ -90,85 +47,45 @@ function App() {
     setTodos(groupTodos(todosData))
   }, [])
 
-  const refreshFromEvent = useCallback(async () => {
-    // 先落库本窗口未防抖完的改动,再拉全量,避免两个窗口互相覆盖
-    await Promise.all([flushNotes(), flushTodos()])
-    const [notesData, todosData] = await Promise.all([
-      invoke<Note[]>('get_notes'),
-      invoke<TodoItem[]>('get_all_todos'),
-    ])
-    setNotes(notesData)
-    setTodos(groupTodos(todosData))
-  }, [flushNotes, flushTodos])
-
   useEffect(() => {
     loadAll()
-      .catch((e) => console.error('Failed to init:', e))
+      .catch((e) => showError(`初始化失败: ${e}`))
       .finally(() => setLoaded(true))
 
+    // 便签增删/置顶变化时广播 notes-updated → 刷新列表
     const unlisten = listen('notes-updated', () => {
-      refreshFromEvent().catch((e) => console.error('Failed to refresh:', e))
+      loadAll().catch((e) => showError(`刷新列表失败: ${e}`))
+    })
+
+    // 管理器重新获得焦点时刷新列表(如从便签窗口切回)
+    const unFocus = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) loadAll().catch((e) => showError(`刷新列表失败: ${e}`))
     })
 
     return () => {
       unlisten.then((fn) => fn())
+      unFocus.then((fn) => fn())
     }
-  }, [loadAll, refreshFromEvent])
+  }, [loadAll, showError])
 
-  // 失焦 / 卸载 / 退出前落库,兜住防抖窗口内的改动
-  useEffect(() => {
-    const flushAll = () => {
-      flushNotes()
-      flushTodos()
-    }
-    window.addEventListener('blur', flushAll)
-    window.addEventListener('beforeunload', flushAll)
-    return () => {
-      window.removeEventListener('blur', flushAll)
-      window.removeEventListener('beforeunload', flushAll)
-      flushAll()
-    }
-  }, [flushNotes, flushTodos])
-
-  const bringToFront = useCallback((id: number) => {
-    const newZ = highestZ + 1
-    setHighestZ(newZ)
-    setZMap((prev) => ({ ...prev, [id]: newZ }))
-    setActiveId(id)
-  }, [highestZ])
-
-  const updateNoteField = useCallback((id: number, changes: Partial<Note>) => {
-    setNotes((prev) => {
-      const next = prev.map((n) => (n.id === id ? { ...n, ...changes } : n))
-      notesRef.current = next
-      return next
-    })
-    scheduleFlush(id)
-  }, [scheduleFlush])
-
-  const addNote = useCallback(async (type: string = 'text') => {
+  const addNote = useCallback(async (type: 'text' | 'todo') => {
     try {
       const note = await invoke<Note>('add_note', {
         title: type === 'todo' ? '新建待办' : '新建便签',
         noteType: type,
         categoryId: activeCategoryId,
       })
+      // Rust 已创建独立窗口并广播 notes-updated;本地先补上保证即时可见
       setNotes((prev) => [...prev, note])
-      bringToFront(note.id)
     } catch (e) {
-      console.error('Failed to add note:', e)
+      showError(`新建便签失败: ${e}`)
     }
-  }, [activeCategoryId, bringToFront])
+  }, [activeCategoryId, showError])
 
   const deleteNote = useCallback(async (id: number) => {
     try {
+      // Rust 侧会先销毁 note-<id> 窗口、删行并广播 notes-updated
       await invoke('delete_note', { id })
-      pendingIdsRef.current.delete(id)
-      Array.from(pendingTodosRef.current.keys()).forEach((tid) => {
-        if (pendingTodosRef.current.get(tid)?.note_id === id) {
-          pendingTodosRef.current.delete(tid)
-        }
-      })
       setNotes((prev) => prev.filter((n) => n.id !== id))
       setTodos((prev) => {
         const next = { ...prev }
@@ -176,35 +93,30 @@ function App() {
         return next
       })
     } catch (e) {
-      console.error('Failed to delete note:', e)
+      showError(`删除便签失败: ${e}`)
     }
-  }, [])
+  }, [showError])
 
-  const togglePin = useCallback(async (id: number) => {
-    const note = notesRef.current.find((n) => n.id === id)
-    if (!note) return
-    await flushNotes()
+  // 置顶切换:仅修改 is_pinned 字段,其余字段(含 x/y)原样传回,不改写坐标
+  const togglePin = useCallback(async (note: Note) => {
     const updated = { ...note, is_pinned: !note.is_pinned }
-    setNotes((prev) => {
-      const next = prev.map((n) => (n.id === id ? updated : n))
-      notesRef.current = next
-      return next
-    })
+    setNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)))
     try {
-      // 置顶变更需要立即落库并广播给置顶窗口
+      // Rust 侧仅在置顶状态变化时广播 notes-updated,列表随后刷新确认
       await invoke('update_note', { note: updated })
     } catch (e) {
-      console.error('Failed to toggle pin:', e)
+      showError(`切换置顶失败: ${e}`)
     }
-  }, [flushNotes])
+  }, [showError])
 
-  const updateOpacity = useCallback((id: number, opacity: number) => {
-    updateNoteField(id, { opacity })
-  }, [updateNoteField])
-
-  const updateCategory = useCallback((id: number, categoryId: number | null) => {
-    updateNoteField(id, { category_id: categoryId })
-  }, [updateNoteField])
+  const openNote = useCallback(async (id: number) => {
+    try {
+      // 已有窗口则复用并高亮,没有则新建
+      await invoke('open_note', { id })
+    } catch (e) {
+      showError(`打开便签失败: ${e}`)
+    }
+  }, [showError])
 
   const addCategory = useCallback(async () => {
     if (!newCategoryName.trim()) return
@@ -214,148 +126,27 @@ function App() {
       setNewCategoryName('')
       setIsAddingCategory(false)
     } catch (e) {
-      console.error('Failed to add category:', e)
+      showError(`新增分类失败: ${e}`)
     }
-  }, [newCategoryName])
+  }, [newCategoryName, showError])
 
   const deleteCategory = useCallback(async (id: number) => {
     try {
       await invoke('delete_category', { id })
       setCategories((prev) => prev.filter((c) => c.id !== id))
-      // 数据库外键会 SET NULL,同步本地状态并落库
+      // 数据库外键 SET NULL,同步本地状态
       setNotes((prev) =>
         prev.map((n) => (n.category_id === id ? { ...n, category_id: null } : n))
       )
-      notesRef.current.forEach((n) => {
-        if (n.category_id === id) scheduleFlush(n.id)
-      })
-      if (activeCategoryId === id) {
-        setActiveCategoryId(null)
-      }
+      if (activeCategoryId === id) setActiveCategoryId(null)
     } catch (e) {
-      console.error('Failed to delete category:', e)
+      showError(`删除分类失败: ${e}`)
     }
-  }, [activeCategoryId, scheduleFlush])
-
-  const toggleTodo = useCallback(async (noteId: number, todoId: number) => {
-    const items = todos[noteId] || []
-    const item = items.find((t) => t.id === todoId)
-    if (item) {
-      const updatedItem = { ...item, is_done: !item.is_done }
-      try {
-        await invoke('update_todo', { item: updatedItem })
-        setTodos((prev) => ({
-          ...prev,
-          [noteId]: items.map((t) => (t.id === todoId ? updatedItem : t)),
-        }))
-      } catch (e) {
-        console.error('Failed to update todo:', e)
-      }
-    }
-  }, [todos])
-
-  const addTodoItem = useCallback(async (noteId: number, content: string) => {
-    try {
-      const item = await invoke<TodoItem>('add_todo', { noteId, content })
-      setTodos((prev) => ({
-        ...prev,
-        [noteId]: [...(prev[noteId] || []), item],
-      }))
-    } catch (e) {
-      console.error('Failed to add todo:', e)
-    }
-  }, [])
-
-  const deleteTodoItem = useCallback(async (noteId: number, todoId: number) => {
-    try {
-      await invoke('delete_todo', { id: todoId })
-      pendingTodosRef.current.delete(todoId)
-      setTodos((prev) => ({
-        ...prev,
-        [noteId]: (prev[noteId] || []).filter((t) => t.id !== todoId),
-      }))
-    } catch (e) {
-      console.error('Failed to delete todo:', e)
-    }
-  }, [])
-
-  const startDrag = useCallback((e: React.MouseEvent, note: Note) => {
-    if (e.button !== 0) return
-    bringToFront(note.id)
-    const startX = e.clientX
-    const startY = e.clientY
-    const origX = note.x
-    const origY = note.y
-
-    // 钳制在窗口范围内,避免便签被拖出屏幕外无法找回
-    let maxX = Infinity
-    let maxY = Infinity
-    const win = getCurrentWindow()
-    Promise.all([win.innerSize(), win.scaleFactor()])
-      .then(([size, scale]) => {
-        const logical = size.toLogical(scale)
-        maxX = Math.max(0, logical.width - note.width)
-        maxY = Math.max(0, logical.height - note.height)
-      })
-      .catch(() => {})
-
-    const onMove = (me: MouseEvent) => {
-      updateNoteField(note.id, {
-        x: Math.min(Math.max(0, origX + (me.clientX - startX)), maxX),
-        y: Math.min(Math.max(0, origY + (me.clientY - startY)), maxY),
-      })
-    }
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      // 推迟到下一次宏任务,确保最后一次 mousemove 的 state 已渲染完成
-      window.setTimeout(flushNotes, 0)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }, [bringToFront, updateNoteField, flushNotes])
-
-  const startResize = useCallback((e: React.MouseEvent, note: Note) => {
-    e.stopPropagation()
-    bringToFront(note.id)
-    const startX = e.clientX
-    const startY = e.clientY
-    const origW = note.width
-    const origH = note.height
-
-    const onMove = (me: MouseEvent) => {
-      updateNoteField(note.id, {
-        width: Math.max(180, origW + (me.clientX - startX)),
-        height: Math.max(120, origH + (me.clientY - startY)),
-      })
-    }
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      // 推迟到下一次宏任务,确保最后一次 mousemove 的 state 已渲染完成
-      window.setTimeout(flushNotes, 0)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }, [bringToFront, updateNoteField, flushNotes])
-
-  // 把便签重新排回可见区域
-  const arrangeNotes = useCallback(() => {
-    notesRef.current.forEach((note, i) => {
-      updateNoteField(note.id, {
-        x: 60 + (i % 4) * 280,
-        y: 60 + Math.floor(i / 4) * 240,
-      })
-    })
-  }, [updateNoteField])
+  }, [activeCategoryId, showError])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, noteId: number | null = null) => {
     e.preventDefault()
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      noteId,
-    })
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId })
   }, [])
 
   const closeContextMenu = useCallback(() => {
@@ -368,27 +159,54 @@ function App() {
     return () => window.removeEventListener('click', handleClick)
   }, [closeContextMenu])
 
-  const handleTitleBarDrag = useCallback(async (e: React.MouseEvent) => {
-    // 仅左键拖动窗口,右键交给上下文菜单
-    if (e.button !== 0) return
-    if ((e.target as HTMLElement).closest('.sticky-note') || (e.target as HTMLElement).closest('.sidebar')) return
-    try {
-      const appWindow = getCurrentWindow()
-      await appWindow.startDragging()
-    } catch {
-      // ignore
+  const formatTime = (value: string): string => {
+    // SQLite 默认 "YYYY-MM-DD HH:MM:SS",统一展示到分钟
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value)) return value.slice(0, 16)
+    const d = new Date(value)
+    if (!Number.isNaN(d.getTime())) {
+      const pad = (n: number) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
     }
-  }, [])
+    return value
+  }
 
-  const filteredNotes = activeCategoryId === null
-    ? notes
-    : notes.filter((n) => n.category_id === activeCategoryId)
+  const summaryOf = (note: Note): string => {
+    if (note.note_type === 'todo') {
+      const items = todos[note.id] || []
+      if (items.length > 0) return items[0].content
+      return '（暂无待办项）'
+    }
+    return note.content.split('\n').find((line) => line.trim().length > 0) || '（空白便签）'
+  }
+
+  const categoryNameOf = (id: number | null): string => {
+    if (id === null) return '无分类'
+    return categories.find((c) => c.id === id)?.name ?? '无分类'
+  }
+
+  // 分类过滤 + 搜索过滤(标题/内容 includes,不区分大小写)+ 排序(置顶优先,再按更新时间倒序)
+  const filteredNotes = useMemo(() => {
+    const kw = search.trim().toLowerCase()
+    const byCategory = activeCategoryId === null
+      ? notes
+      : notes.filter((n) => n.category_id === activeCategoryId)
+    const bySearch = kw
+      ? byCategory.filter(
+          (n) =>
+            n.title.toLowerCase().includes(kw) || n.content.toLowerCase().includes(kw)
+        )
+      : byCategory
+    return [...bySearch].sort((a, b) => {
+      if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1
+      return b.updated_at.localeCompare(a.updated_at)
+    })
+  }, [notes, activeCategoryId, search])
 
   if (!loaded) return null
 
   return (
-    <div className="app-root" onMouseDown={handleTitleBarDrag} onContextMenu={(e) => handleContextMenu(e)}>
-      <div className="sidebar">
+    <div className="app-root" onContextMenu={handleContextMenu}>
+      <aside className="sidebar">
         <div className="sidebar-header">
           <h3>分类</h3>
           <button className="sidebar-btn" onClick={() => setIsAddingCategory(true)}>+</button>
@@ -457,184 +275,116 @@ function App() {
             </button>
           </div>
         </div>
-      </div>
+      </aside>
 
-      <div className="notes-area">
-        {filteredNotes.map((note) => {
-          const isActive = activeId === note.id
-          const noteTodos = todos[note.id] || []
+      <main className="manager-main">
+        <div className="manager-toolbar">
+          <input
+            className="search-box"
+            type="text"
+            placeholder="搜索便签标题或内容..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <span className="note-count">{filteredNotes.length} 条便签</span>
+        </div>
 
-          return (
-            <div
-              key={note.id}
-              className={`sticky-note ${isActive ? 'active' : ''} ${note.is_pinned ? 'pinned' : ''}`}
-              onMouseDown={() => bringToFront(note.id)}
-              onContextMenu={(e) => {
-                e.stopPropagation()
-                handleContextMenu(e, note.id)
-              }}
-              style={{
-                left: note.x,
-                top: note.y,
-                width: note.width,
-                minHeight: note.height,
-                zIndex: zMap[note.id] || 10,
-                opacity: note.opacity,
-              }}
-            >
-              <div className="note-header" onMouseDown={(e) => startDrag(e, note)}>
-                <div className="drag-handle">
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="8" cy="4" r="2" /><circle cx="16" cy="4" r="2" />
-                    <circle cx="8" cy="10" r="2" /><circle cx="16" cy="10" r="2" />
-                    <circle cx="8" cy="16" r="2" /><circle cx="16" cy="16" r="2" />
-                  </svg>
-                </div>
-                <div className="note-controls">
-                  {note.is_pinned && <span className="pin-icon">📌</span>}
-                  <select
-                    className="category-select"
-                    value={note.category_id || ''}
-                    onChange={(e) => updateCategory(note.id, e.target.value ? Number(e.target.value) : null)}
-                  >
-                    <option value="">无分类</option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+        {errorMsg && <div className="error-banner">{errorMsg}</div>}
 
-              <div className="note-body">
-                <input
-                  className="note-title"
-                  value={note.title}
-                  onChange={(e) => updateNoteField(note.id, { title: e.target.value })}
-                  onMouseDown={(e) => e.stopPropagation()}
-                />
-                {note.note_type === 'todo' ? (
-                  <div className="todo-list">
-                    {noteTodos.map((item) => (
-                      <div key={item.id} className="todo-item">
-                        <div
-                          className={`todo-checkbox ${item.is_done ? 'checked' : ''}`}
-                          onClick={() => toggleTodo(note.id, item.id)}
-                        />
-                        <input
-                          className={`todo-text ${item.is_done ? 'done' : ''}`}
-                          value={item.content}
-                          onChange={(e) => {
-                            const updated = { ...item, content: e.target.value }
-                            setTodos((prev) => ({
-                              ...prev,
-                              [note.id]: (prev[note.id] || []).map((t) =>
-                                t.id === item.id ? updated : t
-                              ),
-                            }))
-                            scheduleTodoFlush(updated)
-                          }}
-                          onBlur={() => flushTodos()}
-                        />
-                        <button
-                          className="todo-delete"
-                          onClick={() => deleteTodoItem(note.id, item.id)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                    <div className="todo-add">
-                      <input
-                        placeholder="添加新任务..."
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                            addTodoItem(note.id, e.currentTarget.value.trim())
-                            e.currentTarget.value = ''
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <textarea
-                    className="note-content"
-                    value={note.content}
-                    onChange={(e) => updateNoteField(note.id, { content: e.target.value })}
-                    onMouseDown={(e) => e.stopPropagation()}
-                  />
-                )}
-              </div>
-
-              <div className="note-footer">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={Math.round(note.opacity * 100)}
-                  onChange={(e) => updateOpacity(note.id, Number(e.target.value) / 100)}
-                  className="opacity-slider"
-                />
-                <span className="opacity-value">{Math.round(note.opacity * 100)}%</span>
-              </div>
-
-              <div className="resize-handle" onMouseDown={(e) => startResize(e, note)} />
+        <div className="note-list">
+          {filteredNotes.length === 0 ? (
+            <div className="list-empty">
+              暂无便签,点击左侧「+ 文字便签」或「+ 待办清单」创建
             </div>
-          )
-        })}
-      </div>
+          ) : (
+            filteredNotes.map((note) => (
+              <div
+                key={note.id}
+                data-id={note.id}
+                className={`note-row ${note.is_pinned ? 'pinned' : ''}`}
+                onDoubleClick={() => openNote(note.id)}
+                onContextMenu={(e) => {
+                  e.stopPropagation()
+                  handleContextMenu(e, note.id)
+                }}
+              >
+                <div className="row-type">{note.note_type === 'todo' ? '☑' : '📝'}</div>
+                <div className="row-main">
+                  <div className="row-title">
+                    {note.is_pinned && <span className="pin-icon">📌</span>}
+                    <span className="title-text">{note.title || '（未命名）'}</span>
+                  </div>
+                  <div className="row-summary">{summaryOf(note)}</div>
+                </div>
+                <div className="row-meta">
+                  <span className="row-category">{categoryNameOf(note.category_id)}</span>
+                  <span className="row-time">{formatTime(note.updated_at)}</span>
+                </div>
+                <div className="row-actions">
+                  <button
+                    className="row-btn pin"
+                    title={note.is_pinned ? '取消置顶' : '置顶'}
+                    onClick={() => togglePin(note)}
+                  >
+                    {note.is_pinned ? '取消置顶' : '置顶'}
+                  </button>
+                  <button
+                    className="row-btn delete"
+                    title="删除便签及其窗口"
+                    onClick={() => deleteNote(note.id)}
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </main>
 
       {contextMenu && (
-        <div
-          className="context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
-          {contextMenu.noteId ? (
+        <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+          {contextMenu.noteId !== null ? (
             <>
-              <div className="menu-item" onClick={() => {
-                togglePin(contextMenu.noteId!)
-                closeContextMenu()
-              }}>
+              <div
+                className="menu-item"
+                onClick={() => {
+                  const note = notes.find((n) => n.id === contextMenu.noteId)
+                  if (note) togglePin(note)
+                  closeContextMenu()
+                }}
+              >
                 {notes.find((n) => n.id === contextMenu.noteId)?.is_pinned ? '取消置顶' : '置顶'}
               </div>
-              <div className="menu-item" onClick={() => {
-                deleteNote(contextMenu.noteId!)
-                closeContextMenu()
-              }}>
+              <div
+                className="menu-item"
+                onClick={() => {
+                  deleteNote(contextMenu.noteId!)
+                  closeContextMenu()
+                }}
+              >
                 删除
               </div>
-              <div className="menu-separator" />
-              <div className="menu-label">透明度</div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={Math.round((notes.find((n) => n.id === contextMenu.noteId)?.opacity || 0.8) * 100)}
-                onChange={(e) => {
-                  updateOpacity(contextMenu.noteId!, Number(e.target.value) / 100)
-                }}
-                className="menu-opacity"
-              />
             </>
           ) : (
             <>
-              <div className="menu-item" onClick={() => {
-                addNote('text')
-                closeContextMenu()
-              }}>
+              <div
+                className="menu-item"
+                onClick={() => {
+                  addNote('text')
+                  closeContextMenu()
+                }}
+              >
                 新建文字便签
               </div>
-              <div className="menu-item" onClick={() => {
-                addNote('todo')
-                closeContextMenu()
-              }}>
+              <div
+                className="menu-item"
+                onClick={() => {
+                  addNote('todo')
+                  closeContextMenu()
+                }}
+              >
                 新建待办清单
-              </div>
-              <div className="menu-separator" />
-              <div className="menu-item" onClick={() => {
-                arrangeNotes()
-                closeContextMenu()
-              }}>
-                全部归位
               </div>
             </>
           )}

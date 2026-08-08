@@ -11,12 +11,9 @@
   "app": {
     "windows": [
       {
-        "title": "透明便签",
+        "title": "便签管理器",
         "width": 1200,
-        "height": 800,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true
+        "height": 800
       }
     ],
     "security": {
