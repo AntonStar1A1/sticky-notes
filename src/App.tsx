@@ -19,7 +19,7 @@ function App() {
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
   const [editingField, setEditingField] = useState<'title' | 'content' | null>(null)
   const errorTimerRef = useRef<number | null>(null)
-  const editTimerRef = useRef<number | null>(null)
+  const editTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
 
   // 可见错误提示
   const showError = useCallback((msg: string) => {
@@ -50,6 +50,15 @@ function App() {
     setTodos(groupTodos(todosData))
   }, [])
 
+  // 卸载时立即执行所有待保存的防抖计时器,避免丢失
+  useEffect(() => {
+    return () => {
+      for (const timer of editTimersRef.current.values()) {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     loadAll()
       .catch((e) => showError(`初始化失败: ${e}`))
@@ -69,16 +78,19 @@ function App() {
     }
   }, [loadAll, showError])
 
-  // 内联编辑:防抖保存
+  // 内联编辑:防抖保存(按 note.id 独立计时,避免跨便签丢失)
   const saveNote = useCallback((note: Note) => {
-    if (editTimerRef.current) window.clearTimeout(editTimerRef.current)
-    editTimerRef.current = window.setTimeout(async () => {
+    const timers = editTimersRef.current
+    const existing = timers.get(note.id)
+    if (existing) window.clearTimeout(existing)
+    timers.set(note.id, window.setTimeout(async () => {
+      timers.delete(note.id)
       try {
         await invoke('update_note', { note })
       } catch (e) {
         showError(`保存失败: ${e}`)
       }
-    }, 300)
+    }, 300))
   }, [showError])
 
   const updateNoteInline = useCallback((id: number, changes: Partial<Note>) => {
