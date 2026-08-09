@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>便签管理器</title>
+    <!-- 标题统一用 ASCII 保底:WebView2 OS 层会把窗口标题按 GB18030 乱码重写(见设计文档 §11),
+         中文品牌保留在 UI 内部 -->
+    <title>Sticky Notes</title>
   </head>
   <body>
     <div id="root"></div>
