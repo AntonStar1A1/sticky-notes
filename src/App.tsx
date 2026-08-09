@@ -16,9 +16,12 @@ function App() {
   const [newCategoryName, setNewCategoryName] = useState('')
   const [isAddingCategory, setIsAddingCategory] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
+  const [editingField, setEditingField] = useState<'title' | 'content' | null>(null)
   const errorTimerRef = useRef<number | null>(null)
+  const editTimerRef = useRef<number | null>(null)
 
-  // —— 可见错误提示:console.error + 顶部横幅,4 秒自动消失 ——
+  // 可见错误提示
   const showError = useCallback((msg: string) => {
     console.error(msg)
     setErrorMsg(msg)
@@ -35,7 +38,7 @@ function App() {
     return map
   }
 
-  // —— 只读刷新:拉分类 + 便签列表 + 全部待办(绝不写回任何坐标) ——
+  // 只读刷新
   const loadAll = useCallback(async () => {
     const [cats, notesData, todosData] = await Promise.all([
       invoke<Category[]>('get_categories'),
@@ -52,12 +55,10 @@ function App() {
       .catch((e) => showError(`初始化失败: ${e}`))
       .finally(() => setLoaded(true))
 
-    // 便签增删/置顶变化时广播 notes-updated → 刷新列表
     const unlisten = listen('notes-updated', () => {
       loadAll().catch((e) => showError(`刷新列表失败: ${e}`))
     })
 
-    // 管理器重新获得焦点时刷新列表(如从便签窗口切回)
     const unFocus = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (focused) loadAll().catch((e) => showError(`刷新列表失败: ${e}`))
     })
@@ -68,6 +69,37 @@ function App() {
     }
   }, [loadAll, showError])
 
+  // 内联编辑:防抖保存
+  const saveNote = useCallback((note: Note) => {
+    if (editTimerRef.current) window.clearTimeout(editTimerRef.current)
+    editTimerRef.current = window.setTimeout(async () => {
+      try {
+        await invoke('update_note', { note })
+      } catch (e) {
+        showError(`保存失败: ${e}`)
+      }
+    }, 300)
+  }, [showError])
+
+  const updateNoteInline = useCallback((id: number, changes: Partial<Note>) => {
+    setNotes((prev) => prev.map((n) => {
+      if (n.id !== id) return n
+      const updated = { ...n, ...changes }
+      saveNote(updated)
+      return updated
+    }))
+  }, [saveNote])
+
+  const startEditing = useCallback((noteId: number, field: 'title' | 'content') => {
+    setEditingNoteId(noteId)
+    setEditingField(field)
+  }, [])
+
+  const stopEditing = useCallback(() => {
+    setEditingNoteId(null)
+    setEditingField(null)
+  }, [])
+
   const addNote = useCallback(async (type: 'text' | 'todo') => {
     try {
       const note = await invoke<Note>('add_note', {
@@ -75,7 +107,6 @@ function App() {
         noteType: type,
         categoryId: activeCategoryId,
       })
-      // Rust 已创建独立窗口并广播 notes-updated;本地先补上保证即时可见
       setNotes((prev) => [...prev, note])
     } catch (e) {
       showError(`新建便签失败: ${e}`)
@@ -84,7 +115,6 @@ function App() {
 
   const deleteNote = useCallback(async (id: number) => {
     try {
-      // Rust 侧会先销毁 note-<id> 窗口、删行并广播 notes-updated
       await invoke('delete_note', { id })
       setNotes((prev) => prev.filter((n) => n.id !== id))
       setTodos((prev) => {
@@ -97,9 +127,6 @@ function App() {
     }
   }, [showError])
 
-  // 置顶切换:乐观更新本地列表,再经专用 set_note_pinned 原子命令(单字段 UPDATE + 广播)。
-  // 不再 get_note→翻转→整行 update_note(update_note 已不写置顶字段,且消除 TOCTOU 序列);
-  // Rust 侧广播 notes-updated,列表随后刷新确认。
   const togglePin = useCallback(async (note: Note) => {
     const pinned = !note.is_pinned
     setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, is_pinned: pinned } : n)))
@@ -107,15 +134,6 @@ function App() {
       await invoke('set_note_pinned', { id: note.id, pinned })
     } catch (e) {
       showError(`切换置顶失败: ${e}`)
-    }
-  }, [showError])
-
-  const openNote = useCallback(async (id: number) => {
-    try {
-      // 已有窗口则复用并高亮,没有则新建
-      await invoke('open_note', { id })
-    } catch (e) {
-      showError(`打开便签失败: ${e}`)
     }
   }, [showError])
 
@@ -130,20 +148,6 @@ function App() {
       showError(`新增分类失败: ${e}`)
     }
   }, [newCategoryName, showError])
-
-  const deleteCategory = useCallback(async (id: number) => {
-    try {
-      await invoke('delete_category', { id })
-      setCategories((prev) => prev.filter((c) => c.id !== id))
-      // 数据库外键 SET NULL,同步本地状态
-      setNotes((prev) =>
-        prev.map((n) => (n.category_id === id ? { ...n, category_id: null } : n))
-      )
-      if (activeCategoryId === id) setActiveCategoryId(null)
-    } catch (e) {
-      showError(`删除分类失败: ${e}`)
-    }
-  }, [activeCategoryId, showError])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, noteId: number | null = null) => {
     e.preventDefault()
@@ -160,17 +164,6 @@ function App() {
     return () => window.removeEventListener('click', handleClick)
   }, [closeContextMenu])
 
-  const formatTime = (value: string): string => {
-    // SQLite CURRENT_TIMESTAMP 是 UTC("YYYY-MM-DD HH:MM:SS"),补 Z 显式按 UTC 解析,
-    // 再取本地时区分量展示(修复前直接截断展示 UTC,偏 8 小时)
-    const d = new Date(value.replace(' ', 'T') + 'Z')
-    if (!Number.isNaN(d.getTime())) {
-      const pad = (n: number) => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-    }
-    return value
-  }
-
   const summaryOf = (note: Note): string => {
     if (note.note_type === 'todo') {
       const items = todos[note.id] || []
@@ -180,12 +173,7 @@ function App() {
     return note.content.split('\n').find((line) => line.trim().length > 0) || '（空白便签）'
   }
 
-  const categoryNameOf = (id: number | null): string => {
-    if (id === null) return '无分类'
-    return categories.find((c) => c.id === id)?.name ?? '无分类'
-  }
-
-  // 分类过滤 + 搜索过滤(标题/内容 includes,不区分大小写)+ 排序(置顶优先,再按更新时间倒序)
+  // 分类过滤 + 搜索过滤 + 排序
   const filteredNotes = useMemo(() => {
     const kw = search.trim().toLowerCase()
     const byCategory = activeCategoryId === null
@@ -207,84 +195,59 @@ function App() {
 
   return (
     <div className="app-root" onContextMenu={handleContextMenu}>
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <h3>分类</h3>
-          <button className="sidebar-btn" onClick={() => setIsAddingCategory(true)}>+</button>
+      {/* 分类栏 */}
+      <div className="category-bar">
+        <div
+          className={`category-item ${activeCategoryId === null ? 'active' : ''}`}
+          onClick={() => setActiveCategoryId(null)}
+        >
+          <span className="category-name">全部</span>
+          <span className="category-count">{notes.length}</span>
         </div>
 
-        <div className="category-list">
+        {categories.map((cat) => (
           <div
-            className={`category-item ${activeCategoryId === null ? 'active' : ''}`}
-            onClick={() => setActiveCategoryId(null)}
+            key={cat.id}
+            className={`category-item ${activeCategoryId === cat.id ? 'active' : ''}`}
+            onClick={() => setActiveCategoryId(cat.id)}
           >
-            <span>全部</span>
-            <span className="count">{notes.length}</span>
+            <span className="category-name">{cat.name}</span>
+            <span className="category-count">
+              {notes.filter((n) => n.category_id === cat.id).length}
+            </span>
           </div>
+        ))}
 
-          {categories.map((cat) => (
-            <div
-              key={cat.id}
-              className={`category-item ${activeCategoryId === cat.id ? 'active' : ''}`}
-              onClick={() => setActiveCategoryId(cat.id)}
-            >
-              <span>{cat.name}</span>
-              <span className="count">
-                {notes.filter((n) => n.category_id === cat.id).length}
-              </span>
-              {cat.name !== '默认' && (
-                <button
-                  className="delete-cat"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    deleteCategory(cat.id)
-                  }}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-          ))}
-
-          {isAddingCategory && (
-            <div className="add-category-form">
-              <input
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="分类名称"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') addCategory()
-                  if (e.key === 'Escape') setIsAddingCategory(false)
-                }}
-              />
-              <button onClick={addCategory}>确定</button>
-            </div>
-          )}
-        </div>
-
-        <div className="sidebar-footer">
-          <div className="add-note-buttons">
-            <button className="add-btn text" onClick={() => addNote('text')}>
-              + 文字便签
-            </button>
-            <button className="add-btn todo" onClick={() => addNote('todo')}>
-              + 待办清单
-            </button>
+        {isAddingCategory ? (
+          <div className="add-category-form">
+            <input
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="名称"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addCategory()
+                if (e.key === 'Escape') setIsAddingCategory(false)
+              }}
+            />
+            <button onClick={addCategory}>✓</button>
           </div>
-        </div>
-      </aside>
+        ) : (
+          <button className="category-add" onClick={() => setIsAddingCategory(true)}>+</button>
+        )}
+      </div>
 
-      <main className="manager-main">
-        <div className="manager-toolbar">
+      {/* 便签列表 */}
+      <div className="note-list-container">
+        <div className="note-toolbar">
           <input
             className="search-box"
             type="text"
-            placeholder="搜索便签标题或内容..."
+            placeholder="搜索..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <span className="note-count">{filteredNotes.length} 条便签</span>
+          <span className="note-count">{filteredNotes.length}</span>
         </div>
 
         {errorMsg && <div className="error-banner">{errorMsg}</div>}
@@ -292,64 +255,92 @@ function App() {
         <div className="note-list">
           {filteredNotes.length === 0 ? (
             <div className="list-empty">
-              暂无便签,点击左侧「+ 文字便签」或「+ 待办清单」创建
+              暂无便签
             </div>
           ) : (
             filteredNotes.map((note) => (
               <div
                 key={note.id}
-                data-id={note.id}
-                className={`note-row ${note.is_pinned ? 'pinned' : ''}`}
-                onDoubleClick={(e) => {
-                  // 行内按钮(置顶/删除)上的双击不打开便签,避免误开
-                  if ((e.target as HTMLElement).closest('button')) return
-                  openNote(note.id)
-                }}
+                className={`note-card ${note.is_pinned ? 'pinned' : ''} ${editingNoteId === note.id ? 'editing' : ''}`}
+                onClick={() => startEditing(note.id, 'title')}
                 onContextMenu={(e) => {
                   e.stopPropagation()
                   handleContextMenu(e, note.id)
                 }}
               >
-                <div className="row-type">{note.note_type === 'todo' ? '☑' : '📝'}</div>
-                <div className="row-main">
-                  <div className="row-title">
-                    {note.is_pinned && <span className="pin-icon">📌</span>}
-                    <span className="title-text">{note.title || '（未命名）'}</span>
+                <div className="note-card-header">
+                  <span className="note-card-icon">{note.note_type === 'todo' ? '☑' : '📝'}</span>
+                  {editingNoteId === note.id && editingField === 'title' ? (
+                    <input
+                      className="note-card-title-input"
+                      value={note.title}
+                      placeholder="标题"
+                      autoFocus
+                      onChange={(e) => updateNoteInline(note.id, { title: e.target.value })}
+                      onBlur={stopEditing}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === 'Escape') stopEditing()
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span className="note-card-title">{note.title || '（未命名）'}</span>
+                  )}
+                  {note.is_pinned && <span className="note-card-pin">📌</span>}
+                  <div className="note-card-actions">
+                    <button
+                      className="note-action-btn pin"
+                      title={note.is_pinned ? '取消置顶' : '置顶'}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        togglePin(note)
+                      }}
+                    >
+                      {note.is_pinned ? '取消' : '置顶'}
+                    </button>
+                    <button
+                      className="note-action-btn delete"
+                      title="删除"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        deleteNote(note.id)
+                      }}
+                    >
+                      删除
+                    </button>
                   </div>
-                  <div className="row-summary">{summaryOf(note)}</div>
                 </div>
-                <div className="row-meta">
-                  <span className="row-category">{categoryNameOf(note.category_id)}</span>
-                  <span className="row-time">{formatTime(note.updated_at)}</span>
-                </div>
-                <div className="row-actions">
-                  <button
-                    className="row-btn pin"
-                    title={note.is_pinned ? '取消置顶' : '置顶'}
+                {editingNoteId === note.id && editingField === 'content' ? (
+                  <textarea
+                    className="note-card-content-input"
+                    value={note.content}
+                    placeholder="内容..."
+                    autoFocus
+                    onChange={(e) => updateNoteInline(note.id, { content: e.target.value })}
+                    onBlur={stopEditing}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') stopEditing()
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <div
+                    className="note-card-summary"
                     onClick={(e) => {
                       e.stopPropagation()
-                      togglePin(note)
+                      startEditing(note.id, 'content')
                     }}
                   >
-                    {note.is_pinned ? '取消置顶' : '置顶'}
-                  </button>
-                  <button
-                    className="row-btn delete"
-                    title="删除便签及其窗口"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      deleteNote(note.id)
-                    }}
-                  >
-                    删除
-                  </button>
-                </div>
+                    {summaryOf(note)}
+                  </div>
+                )}
               </div>
             ))
           )}
         </div>
-      </main>
+      </div>
 
+      {/* 右键菜单 */}
       {contextMenu && (
         <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
           {contextMenu.noteId !== null ? (
