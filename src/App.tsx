@@ -20,6 +20,7 @@ function App() {
   const [editingField, setEditingField] = useState<'title' | 'content' | null>(null)
   const errorTimerRef = useRef<number | null>(null)
   const editTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const editDataRef = useRef<Map<number, Note>>(new Map())
 
   // 可见错误提示
   const showError = useCallback((msg: string) => {
@@ -50,12 +51,18 @@ function App() {
     setTodos(groupTodos(todosData))
   }, [])
 
-  // 卸载时立即执行所有待保存的防抖计时器,避免丢失
+  // 卸载时立即将所有待保存的便签数据发送到后端,避免丢失
   useEffect(() => {
     return () => {
       for (const timer of editTimersRef.current.values()) {
         window.clearTimeout(timer)
       }
+      // 尝试保存所有尚未落库的编辑数据
+      for (const note of editDataRef.current.values()) {
+        invoke('update_note', { note }).catch(() => {})
+      }
+      editTimersRef.current.clear()
+      editDataRef.current.clear()
     }
   }, [])
 
@@ -81,10 +88,14 @@ function App() {
   // 内联编辑:防抖保存(按 note.id 独立计时,避免跨便签丢失)
   const saveNote = useCallback((note: Note) => {
     const timers = editTimersRef.current
+    const data = editDataRef.current
     const existing = timers.get(note.id)
     if (existing) window.clearTimeout(existing)
+    // 记录最新待保存数据,供卸载时 flush
+    data.set(note.id, note)
     timers.set(note.id, window.setTimeout(async () => {
       timers.delete(note.id)
+      data.delete(note.id)
       try {
         await invoke('update_note', { note })
       } catch (e) {
@@ -161,9 +172,28 @@ function App() {
     }
   }, [newCategoryName, showError])
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, noteId: number | null = null) => {
+  const deleteCategory = useCallback(async (id: number) => {
+    try {
+      await invoke('delete_category', { id })
+      setCategories((prev) => prev.filter((c) => c.id !== id))
+      // 若当前选中的是被删分类,切回"全部"
+      if (activeCategoryId === id) setActiveCategoryId(null)
+    } catch (e) {
+      showError(`删除分类失败: ${e}`)
+    }
+  }, [activeCategoryId, showError])
+
+  const openNoteInWindow = useCallback(async (id: number) => {
+    try {
+      await invoke('open_note', { id })
+    } catch (e) {
+      showError(`打开便签窗口失败: ${e}`)
+    }
+  }, [showError])
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, noteId: number | null = null, categoryId: number | null = null) => {
     e.preventDefault()
-    setContextMenu({ x: e.clientX, y: e.clientY, noteId })
+    setContextMenu({ x: e.clientX, y: e.clientY, noteId, categoryId })
   }, [])
 
   const closeContextMenu = useCallback(() => {
@@ -222,6 +252,10 @@ function App() {
             key={cat.id}
             className={`category-item ${activeCategoryId === cat.id ? 'active' : ''}`}
             onClick={() => setActiveCategoryId(cat.id)}
+            onContextMenu={(e) => {
+              e.stopPropagation()
+              handleContextMenu(e, null, cat.id)
+            }}
           >
             <span className="category-name">{cat.name}</span>
             <span className="category-count">
@@ -301,6 +335,16 @@ function App() {
                   {note.is_pinned && <span className="note-card-pin">📌</span>}
                   <div className="note-card-actions">
                     <button
+                      className="note-action-btn open"
+                      title="在窗口中打开"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openNoteInWindow(note.id)
+                      }}
+                    >
+                      打开
+                    </button>
+                    <button
                       className="note-action-btn pin"
                       title={note.is_pinned ? '取消置顶' : '置顶'}
                       onClick={(e) => {
@@ -328,7 +372,19 @@ function App() {
                     value={note.content}
                     placeholder="内容..."
                     autoFocus
-                    onChange={(e) => updateNoteInline(note.id, { content: e.target.value })}
+                    ref={(el) => {
+                      if (el) {
+                        el.style.height = 'auto'
+                        el.style.height = el.scrollHeight + 'px'
+                      }
+                    }}
+                    onChange={(e) => {
+                      updateNoteInline(note.id, { content: e.target.value })
+                      // auto-grow
+                      const el = e.target
+                      el.style.height = 'auto'
+                      el.style.height = el.scrollHeight + 'px'
+                    }}
                     onBlur={stopEditing}
                     onKeyDown={(e) => {
                       if (e.key === 'Escape') stopEditing()
@@ -360,6 +416,15 @@ function App() {
               <div
                 className="menu-item"
                 onClick={() => {
+                  openNoteInWindow(contextMenu.noteId!)
+                  closeContextMenu()
+                }}
+              >
+                在窗口中打开
+              </div>
+              <div
+                className="menu-item"
+                onClick={() => {
                   const note = notes.find((n) => n.id === contextMenu.noteId)
                   if (note) togglePin(note)
                   closeContextMenu()
@@ -377,6 +442,16 @@ function App() {
                 删除
               </div>
             </>
+          ) : contextMenu.categoryId !== null ? (
+            <div
+              className="menu-item"
+              onClick={() => {
+                deleteCategory(contextMenu.categoryId!)
+                closeContextMenu()
+              }}
+            >
+              删除分类
+            </div>
           ) : (
             <>
               <div

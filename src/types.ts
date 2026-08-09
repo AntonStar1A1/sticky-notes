@@ -32,4 +32,5 @@ export interface ContextMenu {
   x: number
   y: number
   noteId: number | null
+  categoryId: number | null
 }
