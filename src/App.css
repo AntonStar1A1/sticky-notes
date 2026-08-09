@@ -11,48 +11,85 @@ html, body, #root {
   font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
 }
 
-/* ========== 主框架(普通窗口,不透明) ========== */
+/* ========== 主框架(透明背景) ========== */
 .app-root {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
   display: flex;
   position: relative;
-  background: #17181d;
+  background: transparent;
   color: rgba(255, 255, 255, 0.85);
   font-size: 13px;
   cursor: default;
   user-select: none;
 }
 
-/* ========== 侧边栏 ========== */
-.sidebar {
-  width: 200px;
+/* ========== 分类栏(36px) ========== */
+.category-bar {
+  width: 36px;
   height: 100vh;
-  background: #1e2026;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
-  z-index: 100;
-  user-select: none;
-}
-
-.sidebar-header {
-  padding: 16px;
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 0;
+  gap: 2px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-.sidebar-header h3 {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 14px;
-  font-weight: 500;
+.category-item {
+  width: 100%;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+  position: relative;
+  min-height: 36px;
 }
 
-.sidebar-btn {
+.category-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.category-item.active {
+  color: #fff;
+}
+
+.category-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: #4a9eff;
+  border-radius: 1px;
+}
+
+.category-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 28px;
+}
+
+.category-count {
+  font-size: 9px;
+  opacity: 0.5;
+  margin-top: 2px;
+}
+
+.category-add {
   width: 24px;
   height: 24px;
   border: none;
@@ -63,129 +100,18 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  font-size: 14px;
+  margin-top: auto;
+  transition: all 0.15s;
 }
 
-.sidebar-btn:hover {
+.category-add:hover {
   background: rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.9);
 }
 
-.category-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 0;
-}
-
-.category-item {
-  padding: 8px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  cursor: pointer;
-  transition: all 0.15s;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.category-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.category-item.active {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-}
-
-.category-item .count {
-  font-size: 11px;
-  opacity: 0.5;
-}
-
-.delete-cat {
-  opacity: 0;
-  border: none;
-  background: none;
-  color: rgba(255, 255, 255, 0.5);
-  cursor: pointer;
-  padding: 2px 4px;
-  transition: opacity 0.15s;
-}
-
-.category-item:hover .delete-cat {
-  opacity: 1;
-}
-
-.delete-cat:hover {
-  color: #ff6b6b;
-}
-
-.add-category-form {
-  padding: 8px 16px;
-  display: flex;
-  gap: 4px;
-}
-
-.add-category-form input {
-  flex: 1;
-  padding: 4px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
-  outline: none;
-}
-
-.add-category-form button {
-  padding: 4px 8px;
-  border: none;
-  border-radius: 4px;
-  background: #4a9eff;
-  color: #fff;
-  cursor: pointer;
-}
-
-.sidebar-footer {
-  padding: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.add-note-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.add-btn {
-  padding: 8px 12px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: all 0.15s;
-}
-
-.add-btn.text {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.add-btn.text:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.add-btn.todo {
-  background: linear-gradient(135deg, #f5e663 0%, #e8c547 100%);
-  color: #3a3010;
-  font-weight: 500;
-}
-
-.add-btn.todo:hover {
-  box-shadow: 0 4px 12px rgba(232, 197, 71, 0.4);
-}
-
-/* ========== 管理器主区域 ========== */
-.manager-main {
+/* ========== 便签列表(244px) ========== */
+.note-list-container {
   flex: 1;
   min-width: 0;
   height: 100vh;
@@ -193,24 +119,22 @@ html, body, #root {
   flex-direction: column;
 }
 
-.manager-toolbar {
+.note-toolbar {
+  padding: 8px 10px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .search-box {
   flex: 1;
-  max-width: 420px;
-  padding: 8px 14px;
+  padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
+  border-radius: 6px;
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.9);
-  font-size: 13px;
+  font-size: 12px;
   outline: none;
   user-select: text;
   transition: border-color 0.15s;
@@ -225,162 +149,134 @@ html, body, #root {
 }
 
 .note-count {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.45);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
   flex-shrink: 0;
 }
 
-.error-banner {
-  margin: 10px 20px 0;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: rgba(255, 107, 107, 0.12);
-  border: 1px solid rgba(255, 107, 107, 0.3);
-  color: #ff9d9d;
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-/* ========== 便签列表 ========== */
 .note-list {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px;
+  padding: 4px 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
-.note-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+/* ========== 便签卡片(毛玻璃) ========== */
+.note-card {
+  padding: 10px 12px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.note-row:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.14);
-}
-
-.note-row.pinned {
-  background: rgba(245, 230, 99, 0.04);
-  border-color: rgba(245, 230, 99, 0.22);
-}
-
-.row-type {
-  font-size: 18px;
-  flex-shrink: 0;
-  opacity: 0.9;
-}
-
-.row-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.row-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.title-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pin-icon {
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.row-summary {
-  margin-top: 3px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.row-category {
-  font-size: 11px;
-  color: rgba(74, 158, 255, 0.75);
-  background: rgba(74, 158, 255, 0.12);
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-
-.row-time {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
-}
-
-.row-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.note-row:hover .row-actions {
-  opacity: 1;
-}
-
-.row-btn {
-  padding: 5px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   cursor: pointer;
   transition: all 0.15s;
 }
 
-.row-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+.note-card:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
-.row-btn.pin:hover {
-  border-color: rgba(245, 230, 99, 0.5);
-  background: rgba(245, 230, 99, 0.08);
-  color: #ffe75e;
+.note-card.pinned {
+  border-color: rgba(245, 230, 99, 0.3);
 }
 
-.row-btn.delete:hover {
-  border-color: rgba(255, 107, 107, 0.5);
-  background: rgba(255, 107, 107, 0.1);
-  color: #ff8a8a;
+.note-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 
+.note-card-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.note-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.note-card-pin {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.note-card-summary {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 20px;
+}
+
+/* ========== 内联编辑状态 ========== */
+.note-card.editing {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(74, 158, 255, 0.5);
+}
+
+.note-card-title-input {
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid rgba(74, 158, 255, 0.4);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  font-family: inherit;
+  user-select: text;
+}
+
+.note-card-content-input {
+  width: 100%;
+  padding: 4px;
+  border: 1px solid rgba(74, 158, 255, 0.4);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  outline: none;
+  resize: none;
+  min-height: 40px;
+  font-family: inherit;
+  user-select: text;
+}
+
+/* ========== 错误提示 ========== */
+.error-banner {
+  margin: 4px 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255, 107, 107, 0.12);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  color: #ff9d9d;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+/* ========== 空状态 ========== */
 .list-empty {
   margin: 48px auto;
   color: rgba(255, 255, 255, 0.35);
-  font-size: 13px;
+  font-size: 12px;
   text-align: center;
-  max-width: 320px;
-  line-height: 1.8;
+  max-width: 200px;
+  line-height: 1.6;
 }
 
 /* ========== 右键菜单 ========== */
@@ -392,13 +288,13 @@ html, body, #root {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   padding: 4px 0;
-  min-width: 160px;
+  min-width: 140px;
   z-index: 10000;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 .menu-item {
-  padding: 8px 12px;
+  padding: 7px 12px;
   color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
   transition: all 0.15s;
@@ -431,4 +327,75 @@ html, body, #root {
 .note-list::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 3px;
+}
+
+/* ========== 添加分类表单 ========== */
+.add-category-form {
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.add-category-form input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  outline: none;
+  font-size: 11px;
+  text-align: center;
+}
+
+.add-category-form button {
+  padding: 3px 6px;
+  border: none;
+  border-radius: 4px;
+  background: #4a9eff;
+  color: #fff;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+/* ========== 便签操作按钮(悬浮显示) ========== */
+.note-card-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.note-card:hover .note-card-actions {
+  opacity: 1;
+}
+
+.note-action-btn {
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.note-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.note-action-btn.pin:hover {
+  border-color: rgba(245, 230, 99, 0.5);
+  background: rgba(245, 230, 99, 0.08);
+  color: #ffe75e;
+}
+
+.note-action-btn.delete:hover {
+  border-color: rgba(255, 107, 107, 0.5);
+  background: rgba(255, 107, 107, 0.1);
+  color: #ff8a8a;
 }
