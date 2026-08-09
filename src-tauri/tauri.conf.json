@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "便签管理器",
+        "title": "Sticky Notes",
         "width": 1200,
         "height": 800
       }

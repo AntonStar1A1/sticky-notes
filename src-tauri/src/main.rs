@@ -5,7 +5,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 use std::sync::Mutex;
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 
 mod db;
 
@@ -86,18 +86,22 @@ async fn add_note(app: tauri::AppHandle, state: tauri::State<'_, DbConn>, title:
     create_note(&app, title, note_type, category_id)
 }
 
+// 编辑静默落库:update_note 不再承载置顶(update_note 的 UPDATE 已移除 is_pinned 字段),
+// 也不广播(编辑由前端防抖/失焦 flush,广播无意义;顺带消除"行不存在/更新失败也广播"的误导)
 #[tauri::command]
-fn update_note(app: tauri::AppHandle, state: tauri::State<DbConn>, note: db::Note) -> Result<(), String> {
+fn update_note(state: tauri::State<DbConn>, note: db::Note) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
-    // 只在置顶状态变化时广播,普通编辑由前端防抖静默保存,避免全量刷新
-    let prev_pin: Option<bool> = conn
-        .query_row("SELECT is_pinned FROM notes WHERE id = ?1", params![note.id], |r| r.get(0))
-        .ok();
-    let result = db::update_note(&conn, &note).map_err(|e| e.to_string());
-    if prev_pin != Some(note.is_pinned) {
-        let _ = app.emit("notes-updated", ());
-    }
-    result
+    db::update_note(&conn, &note).map_err(|e| e.to_string())
+}
+
+// 置顶专用命令:原子单字段 UPDATE(经 db::set_pinned),置顶变化即广播 notes-updated,
+// 供管理器列表与 note 窗口双向同步。绝不整行写回,避免陈旧快照覆盖另一窗口的置顶切换。
+#[tauri::command]
+fn set_note_pinned(app: tauri::AppHandle, state: tauri::State<DbConn>, id: i64, pinned: bool) -> Result<(), String> {
+    let conn = state.0.lock().unwrap();
+    db::set_pinned(&conn, id, pinned).map_err(|e| e.to_string())?;
+    let _ = app.emit("notes-updated", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -263,7 +267,7 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_categories, add_category, delete_category,
-            get_notes, add_note, update_note, delete_note,
+            get_notes, add_note, update_note, set_note_pinned, delete_note,
             get_note, open_note,
             get_all_todos, add_todo, update_todo, delete_todo
         ])

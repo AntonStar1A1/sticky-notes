@@ -161,7 +161,9 @@ function NoteApp() {
     window.addEventListener('mouseup', onUp)
   }, [schedule])
 
-  // 置顶:先落库未防抖改动,再带全量最新 note 立即写库(触发 Rust 置顶广播)+ 窗口置顶
+  // 置顶:先落库未防抖改动,再经专用 set_note_pinned 原子命令(单字段 UPDATE,
+  // 不整行回写 —— update_note 已不写置顶,陈旧 is_pinned 快照不可能再覆盖管理器置顶)。
+  // Rust 侧置顶变化即广播 notes-updated → 本窗口 refresh 重拉确认 + setAlwaysOnTop 同步。
   const togglePin = useCallback(async () => {
     await flush()
     const current = noteRef.current
@@ -170,7 +172,7 @@ function NoteApp() {
     noteRef.current = next
     setNote(next)
     try {
-      await invoke('update_note', { note: next })
+      await invoke('set_note_pinned', { id, pinned: next.is_pinned })
       await win.setAlwaysOnTop(next.is_pinned)
     } catch (e) {
       console.error('置顶切换失败:', e)

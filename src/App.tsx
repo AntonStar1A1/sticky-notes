@@ -97,15 +97,14 @@ function App() {
     }
   }, [showError])
 
-  // 置顶切换:先取 DB 最新记录再翻 is_pinned,其余字段(含 x/y)以最新值为准回写,
-  // 避免用过期的本地快照整行覆盖便签窗口已静默落库的编辑(便签窗口编辑不广播)
+  // 置顶切换:乐观更新本地列表,再经专用 set_note_pinned 原子命令(单字段 UPDATE + 广播)。
+  // 不再 get_note→翻转→整行 update_note(update_note 已不写置顶字段,且消除 TOCTOU 序列);
+  // Rust 侧广播 notes-updated,列表随后刷新确认。
   const togglePin = useCallback(async (note: Note) => {
+    const pinned = !note.is_pinned
+    setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, is_pinned: pinned } : n)))
     try {
-      const latest = await invoke<Note>('get_note', { id: note.id })
-      const updated = { ...latest, is_pinned: !latest.is_pinned }
-      setNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)))
-      // Rust 侧仅在置顶状态变化时广播 notes-updated,列表随后刷新确认
-      await invoke('update_note', { note: updated })
+      await invoke('set_note_pinned', { id: note.id, pinned })
     } catch (e) {
       showError(`切换置顶失败: ${e}`)
     }
@@ -162,9 +161,9 @@ function App() {
   }, [closeContextMenu])
 
   const formatTime = (value: string): string => {
-    // SQLite 默认 "YYYY-MM-DD HH:MM:SS",统一展示到分钟
-    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value)) return value.slice(0, 16)
-    const d = new Date(value)
+    // SQLite CURRENT_TIMESTAMP 是 UTC("YYYY-MM-DD HH:MM:SS"),补 Z 显式按 UTC 解析,
+    // 再取本地时区分量展示(修复前直接截断展示 UTC,偏 8 小时)
+    const d = new Date(value.replace(' ', 'T') + 'Z')
     if (!Number.isNaN(d.getTime())) {
       const pad = (n: number) => String(n).padStart(2, '0')
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`

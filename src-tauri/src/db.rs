@@ -197,9 +197,21 @@ pub fn add_note(conn: &Connection, note: &Note) -> Result<Note> {
 }
 
 pub fn update_note(conn: &Connection, note: &Note) -> Result<()> {
+    // 注意:UPDATE 不含 is_pinned —— 置顶只经 set_pinned 变更(原子单字段),
+    // flush 整行写回不可能碰置顶,从根上消除"note 窗口陈旧 is_pinned 静默回退
+    // 管理器置顶切换"的双窗口竞争。Note 结构体与 SELECT 不变(前端仍可读 is_pinned)。
     conn.execute(
-        "UPDATE notes SET title = ?1, content = ?2, note_type = ?3, category_id = ?4, x = ?5, y = ?6, width = ?7, height = ?8, opacity = ?9, is_pinned = ?10, updated_at = CURRENT_TIMESTAMP WHERE id = ?11",
-        params![note.title, note.content, note.note_type, note.category_id, note.x, note.y, note.width, note.height, note.opacity, note.is_pinned, note.id],
+        "UPDATE notes SET title = ?1, content = ?2, note_type = ?3, category_id = ?4, x = ?5, y = ?6, width = ?7, height = ?8, opacity = ?9, updated_at = CURRENT_TIMESTAMP WHERE id = ?10",
+        params![note.title, note.content, note.note_type, note.category_id, note.x, note.y, note.width, note.height, note.opacity, note.id],
+    )?;
+    Ok(())
+}
+
+// 置顶专用命令:原子 UPDATE is_pinned + updated_at,不触碰其余字段。
+pub fn set_pinned(conn: &Connection, id: i64, pinned: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE notes SET is_pinned = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+        params![pinned, id],
     )?;
     Ok(())
 }
