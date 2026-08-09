@@ -167,7 +167,7 @@ html, body, #root {
 .note-card {
   padding: 10px 12px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -313,17 +313,17 @@ html, body, #root {
 }
 
 /* ========== 滚动条 ========== */
-.category-list::-webkit-scrollbar,
+.category-bar::-webkit-scrollbar,
 .note-list::-webkit-scrollbar {
   width: 3px;
 }
 
-.category-list::-webkit-scrollbar-track,
+.category-bar::-webkit-scrollbar-track,
 .note-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.category-list::-webkit-scrollbar-thumb,
+.category-bar::-webkit-scrollbar-thumb,
 .note-list::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 3px;
