@@ -215,6 +215,28 @@ function App() {
     return note.content.split('\n').find((line) => line.trim().length > 0) || '（空白便签）'
   }
 
+  // 格式化时间为相对显示
+  const formatTime = (isoStr: string): string => {
+    // SQLite CURRENT_TIMESTAMP 返回 UTC 时间,加 Z 表示 UTC,JS 自动转本地时区
+    const normalized = isoStr.replace(' ', 'T') + 'Z'
+    const date = new Date(normalized)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMin = Math.floor(diffMs / 60000)
+    const diffHour = Math.floor(diffMs / 3600000)
+    const diffDay = Math.floor(diffMs / 86400000)
+
+    if (diffMin < 1) return '刚刚'
+    if (diffMin < 60) return `${diffMin}分钟前`
+    if (diffHour < 24) return `${diffHour}小时前`
+    if (diffDay === 1) return '昨天'
+    if (diffDay < 7) return `${diffDay}天前`
+    // 超过7天显示具体日期
+    const m = date.getMonth() + 1
+    const d = date.getDate()
+    return `${m}月${d}日`
+  }
+
   // 分类过滤 + 搜索过滤 + 排序
   const filteredNotes = useMemo(() => {
     const kw = search.trim().toLowerCase()
@@ -402,6 +424,9 @@ function App() {
                     {summaryOf(note)}
                   </div>
                 )}
+                <div className="note-card-time">
+                  {formatTime(note.updated_at)}
+                </div>
               </div>
             ))
           )}

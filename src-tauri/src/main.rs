@@ -86,12 +86,14 @@ async fn add_note(app: tauri::AppHandle, state: tauri::State<'_, DbConn>, title:
     create_note(&app, title, note_type, category_id)
 }
 
-// 编辑静默落库:update_note 不再承载置顶(update_note 的 UPDATE 已移除 is_pinned 字段),
-// 也不广播(编辑由前端防抖/失焦 flush,广播无意义;顺带消除"行不存在/更新失败也广播"的误导)
+// 编辑落库:update_note 不再承载置顶(update_note 的 UPDATE 已移除 is_pinned 字段),
+// 广播 notes-updated 供管理台刷新时间显示
 #[tauri::command]
-fn update_note(state: tauri::State<DbConn>, note: db::Note) -> Result<(), String> {
+fn update_note(app: tauri::AppHandle, state: tauri::State<DbConn>, note: db::Note) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
-    db::update_note(&conn, &note).map_err(|e| e.to_string())
+    db::update_note(&conn, &note).map_err(|e| e.to_string())?;
+    let _ = app.emit("notes-updated", ());
+    Ok(())
 }
 
 // 置顶专用命令:原子单字段 UPDATE(经 db::set_pinned),置顶变化即广播 notes-updated,
