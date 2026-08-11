@@ -36,10 +36,25 @@ function NoteApp() {
     }
     const pending = pendingRef.current
     pendingRef.current = { note: undefined, todos: new Map() }
+    let saved = false
     try {
-      if (pending.note) await invoke('update_note', { note: pending.note })
+      if (pending.note) {
+        console.log('[NoteApp] flush: saving note', pending.note.id, 'updated_at before:', pending.note.updated_at)
+        await invoke('update_note', { note: pending.note })
+        saved = true
+      }
       const items = Array.from(pending.todos.values())
-      if (items.length) await Promise.all(items.map((it) => invoke('update_todo', { item: it })))
+      if (items.length) {
+        await Promise.all(items.map((it) => invoke('update_todo', { item: it })))
+        saved = true
+      }
+      // 保存后从数据库重新拉取,确保 updated_at 等字段与数据库一致
+      if (saved) {
+        const n = await invoke<Note>('get_note', { id })
+        console.log('[NoteApp] flush: re-fetched note, updated_at:', n.updated_at)
+        noteRef.current = n
+        setNote(n)
+      }
     } catch (e) {
       console.error('保存便签失败:', e)
     }
@@ -276,6 +291,42 @@ function NoteApp() {
     setWindowState(!expanded)
   }, [expanded, setWindowState])
 
+  // 格式化时间为相对显示
+  const formatTime = (isoStr: string): string => {
+    // SQLite CURRENT_TIMESTAMP 返回 UTC 时间,加 Z 表示 UTC,JS 自动转本地时区
+    const normalized = isoStr.replace(' ', 'T') + 'Z'
+    const date = new Date(normalized)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMin = Math.floor(diffMs / 60000)
+    const diffHour = Math.floor(diffMs / 3600000)
+    const diffDay = Math.floor(diffMs / 86400000)
+
+    if (diffMin < 1) return '刚刚'
+    if (diffMin < 60) return `${diffMin}分钟前`
+    if (diffHour < 24) return `${diffHour}小时前`
+    if (diffDay === 1) return '昨天'
+    if (diffDay < 7) return `${diffDay}天前`
+    const m = date.getMonth() + 1
+    const d = date.getDate()
+    return `${m}月${d}日`
+  }
+
+  // 滚轮调节透明度(仅收起态,用原生监听以支持 preventDefault)
+  useEffect(() => {
+    if (expanded) return
+    const el = document.querySelector('.note-root')
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? -0.05 : 0.05
+      const newOpacity = Math.min(1, Math.max(0.15, noteRef.current!.opacity + delta))
+      updateNote({ opacity: newOpacity })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [expanded, updateNote])
+
   const retry = useCallback(() => window.location.reload(), [])
 
   if (error) {
@@ -308,9 +359,10 @@ function NoteApp() {
       }}
       onContextMenu={openMenu}
     >
-      <div className="note-card" style={{ opacity: note.opacity }}>
+      <div className="note-card" style={{ background: `rgba(255, 255, 255, ${note.opacity})` }}>
         <div className="note-header">
           <span className="note-title-text">{note.title || '无标题'}</span>
+          <span className="note-time-text">{formatTime(note.updated_at)}</span>
           <div className="note-actions">
             <button
               className={`pin-btn ${note.is_pinned ? 'pinned' : ''}`}

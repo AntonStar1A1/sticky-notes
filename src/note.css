@@ -10,21 +10,16 @@
   font-family: 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
 }
 
-/* —— 卡片:紧凑=半透明黄,展开=半透明白 —— */
+/* —— 卡片:背景由 JS 动态控制透明度 —— */
 .note-card {
   position: absolute;
   inset: 2px; /* 留出边缘,让高亮/阴影在透明窗口上可见 */
   border-radius: 10px;
-  background: rgba(255, 247, 190, 0.94);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.note-root.expanded .note-card {
-  background: rgba(255, 255, 255, 0.94);
 }
 
 .note-center-card {
@@ -72,6 +67,17 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.note-time-text {
+  font-size: 10px;
+  color: #888;
+  white-space: nowrap;
+  margin-left: 6px;
+  flex: none;
+  flex-shrink: 0;
 }
 
 .note-actions {
