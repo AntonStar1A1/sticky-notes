@@ -8,7 +8,7 @@ type State = 'normal' | 'docked' | 'revealed' | 'retracting'
 
 const DOCK_THRESHOLD = 15
 const STRIP_SIZE = 4
-const RETRACT_DELAY = 800
+const RETRACT_DELAY = 300
 const POLL_INTERVAL = 200
 const POS_CHECK_INTERVAL = 100
 
@@ -25,6 +25,8 @@ export function useEdgeDock(enabled: boolean) {
   const lastKnownPosRef = useRef<{ x: number; y: number } | null>(null)
   const stableCountRef = useRef(0)
   const startPositionCheckRef = useRef<(() => void) | null>(null)
+  // 冷却期:undock 后一段时间内禁止重新吸附
+  const cooldownRef = useRef(false)
 
   enabledRef.current = enabled
 
@@ -303,7 +305,12 @@ export function useEdgeDock(enabled: boolean) {
     preDockPosRef.current = null
     stableCountRef.current = 0
     lastKnownPosRef.current = null
-    // 延迟重启位置轮询,避免恢复后立即被重新吸附
+    // 设置冷却期,防止立即重新吸附
+    cooldownRef.current = true
+    window.setTimeout(() => {
+      cooldownRef.current = false
+    }, 3000)
+    // 延迟重启位置轮询
     window.setTimeout(() => {
       if (enabledRef.current && startPositionCheckRef.current) startPositionCheckRef.current()
     }, 1500)
@@ -338,7 +345,7 @@ export function useEdgeDock(enabled: boolean) {
       const last = lastKnownPosRef.current
       if (last && lp.x === last.x && lp.y === last.y) {
         stableCountRef.current++
-        if (stableCountRef.current >= 3) {
+        if (stableCountRef.current >= 3 && !cooldownRef.current) {
           const wa = monitor.workArea
           const waX = wa.position.toLogical(sf).x
           const waY = wa.position.toLogical(sf).y

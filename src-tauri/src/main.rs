@@ -50,7 +50,7 @@ fn create_note(app: &tauri::AppHandle, title: String, note_type: String, categor
         width: 360.0,
         height: 420.0,
         opacity: 1.0,
-        is_pinned: true,
+        is_pinned: false,
         created_at: String::new(),
         updated_at: String::new(),
     };

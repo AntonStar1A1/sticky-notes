@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import './App.css'
 import type { Category, Note, TodoItem, ContextMenu } from './types'
+import SettingsPanel, { isEdgeDockEnabled } from './components/SettingsPanel'
+import { useEdgeDock } from './hooks/useEdgeDock'
 
 function App() {
   const [notes, setNotes] = useState<Note[]>([])
@@ -18,9 +20,14 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
   const [editingField, setEditingField] = useState<'title' | 'content' | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
+  const [edgeDockEnabled, setEdgeDockEnabled] = useState(isEdgeDockEnabled())
   const errorTimerRef = useRef<number | null>(null)
   const editTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
   const editDataRef = useRef<Map<number, Note>>(new Map())
+
+  // 边缘吸附
+  const { undock } = useEdgeDock(edgeDockEnabled)
 
   // 可见错误提示
   const showError = useCallback((msg: string) => {
@@ -84,6 +91,13 @@ function App() {
       unFocus.then((fn) => fn())
     }
   }, [loadAll, showError])
+
+  // 监听边缘吸附设置变化
+  useEffect(() => {
+    const handler = (e: CustomEvent) => setEdgeDockEnabled(e.detail)
+    window.addEventListener('edge-dock-changed', handler as EventListener)
+    return () => window.removeEventListener('edge-dock-changed', handler as EventListener)
+  }, [])
 
   // 内联编辑:防抖保存(按 note.id 独立计时,避免跨便签丢失)
   const saveNote = useCallback((note: Note) => {
@@ -259,6 +273,32 @@ function App() {
 
   return (
     <div className="app-root" onContextMenu={handleContextMenu}>
+      {/* 标题栏 */}
+      <div className="title-bar">
+        <span className="title-text">便签管理</span>
+        <div className="title-controls">
+          <button
+            className="title-btn"
+            onClick={async () => {
+              await undock()
+              getCurrentWindow().minimize()
+            }}
+            title="最小化"
+          >
+            ─
+          </button>
+          <button
+            className="title-btn close"
+            onClick={() => getCurrentWindow().hide()}
+            title="关闭"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {/* 主内容区 */}
+      <div className="main-content">
       {/* 分类栏 */}
       <div className="category-bar">
         <div
@@ -303,6 +343,13 @@ function App() {
         ) : (
           <button className="category-add" onClick={() => setIsAddingCategory(true)}>+</button>
         )}
+        <button
+          className="category-settings"
+          onClick={() => setShowSettings(!showSettings)}
+          title="设置"
+        >
+          ⚙
+        </button>
       </div>
 
       {/* 便签列表 */}
@@ -432,6 +479,7 @@ function App() {
           )}
         </div>
       </div>
+      </div>
 
       {/* 右键菜单 */}
       {contextMenu && (
@@ -500,6 +548,11 @@ function App() {
             </>
           )}
         </div>
+      )}
+
+      {/* 设置面板 */}
+      {showSettings && (
+        <SettingsPanel onClose={() => setShowSettings(false)} />
       )}
     </div>
   )
