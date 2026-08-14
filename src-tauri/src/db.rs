@@ -154,7 +154,14 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             value TEXT NOT NULL
         );
 
-        INSERT OR IGNORE INTO categories (name) VALUES ('默认'), ('工作'), ('生活'), ('学习'), ('灵感');
+        -- v3 迁移后 name 无 UNIQUE(支持重命名撞名),INSERT OR IGNORE 不再去重,每次启动会重复播种;
+        -- 改为按名称存在性判断:仅当同名分类不存在时才插入(init_db 每次启动都会执行)
+        INSERT INTO categories (name)
+        SELECT '默认' WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = '默认')
+        UNION ALL SELECT '工作' WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = '工作')
+        UNION ALL SELECT '生活' WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = '生活')
+        UNION ALL SELECT '学习' WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = '学习')
+        UNION ALL SELECT '灵感' WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = '灵感');
         "
     )?;
     Ok(())
@@ -831,6 +838,33 @@ mod tests {
         add_category(&conn, &name).unwrap();
         let c2 = add_category(&conn, &name).unwrap();
         assert_ne!(c2.id, 0);
+    }
+
+    #[test]
+    fn init_db_seeding_does_not_duplicate_without_name_unique() {
+        // 回归:v3 迁移去掉 name UNIQUE 后,init_db 每次启动执行,
+        // 播种必须靠名称存在性去重(线上曾复现同名默认分类多份)
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM categories", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 5);
+        // 迁移后再 init_db(模拟每次启动)不得新增重复
+        migrate(&conn).unwrap();
+        init_db(&conn).unwrap();
+        let dupes: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM categories c WHERE (SELECT COUNT(*) FROM categories WHERE name = c.name) > 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+        assert_eq!(dupes, 0);
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM categories", [], |r| r.get(0)).unwrap();
+        assert_eq!(total, 6); // 5 默认 + 隐私
+        // 用户删除默认分类后重启,播种恢复缺失的默认名(与旧 UNIQUE 时代行为一致)
+        conn.execute("DELETE FROM categories WHERE name = '工作'", []).unwrap();
+        init_db(&conn).unwrap();
+        let work: i64 = conn.query_row("SELECT COUNT(*) FROM categories WHERE name = '工作'", [], |r| r.get(0)).unwrap();
+        assert_eq!(work, 1);
     }
 
     #[test]
