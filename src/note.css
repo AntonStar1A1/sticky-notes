@@ -214,6 +214,8 @@ button {
 }
 .note-title-input::placeholder {
   color: var(--fg-faint, #6d6d78);
+  font-weight: 400; /* 浅色底纹感:与真实标题的粗体区分 */
+  opacity: 0.75;
 }
 
 .note-content {

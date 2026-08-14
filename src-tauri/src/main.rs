@@ -142,8 +142,8 @@ fn base_note(title: &str, note_type: &str, category_id: Option<i64>) -> db::Note
 
 fn first_line_title(text: &str) -> String {
     let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-    let s: String = first.chars().take(30).collect();
-    if s.is_empty() { "新建便签".to_string() } else { s }
+    // 内容为空时标题也留空:空便签在关闭窗口时会被丢弃,不再以「新建便签」占位文字落库
+    first.chars().take(30).collect()
 }
 
 /// 新建便签共享逻辑:command / 托盘 / 全局快捷键 / 闪电捕获 多路复用。
@@ -189,8 +189,8 @@ fn create_note(app: &tauri::AppHandle, note: db::Note, open_window: bool) -> Res
 }
 
 fn new_note_via(app: &tauri::AppHandle, note_type: &str) -> Result<db::Note, String> {
-    let title = if note_type == "todo" { "新建待办" } else { "新建便签" };
-    create_note(app, base_note(title, note_type, None), true)
+    // 标题留空:窗口内以浅色占位符「新建便签/新建待办」提示,未填写任何内容关闭时即删除(不落库)
+    create_note(app, base_note("", note_type, None), true)
 }
 
 fn centered_position(app: &tauri::AppHandle, w: f64, h: f64) -> (f64, f64) {
@@ -551,6 +551,45 @@ fn get_note(state: tauri::State<AppState>, id: i64) -> Result<db::Note, String> 
     db::get_note_by_id(&conn, id).map_err(|e| e.to_string())
 }
 
+/// 关闭便签窗口时调用:标题/内容/待办/附件全空视为「未填写」,彻底删除并清理其时间轴与离线队列记录;
+/// 有任一内容则不动。返回是否已删除。
+#[tauri::command]
+fn discard_empty_note(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64) -> Result<bool, String> {
+    let conn = state.db.0.lock().unwrap();
+    let note = db::get_note_by_id(&conn, id).map_err(|e| e.to_string())?;
+    let has_content = !note.title.trim().is_empty()
+        || !note.content.trim().is_empty()
+        || conn
+            .query_row("SELECT COUNT(*) FROM todo_items WHERE note_id = ?1", [id], |r| r.get::<_, i64>(0))
+            .unwrap_or(0)
+            > 0
+        || conn
+            .query_row("SELECT COUNT(*) FROM sticky_note_attachment WHERE note_id = ?1", [id], |r| r.get::<_, i64>(0))
+            .unwrap_or(0)
+            > 0;
+    if has_content {
+        return Ok(false);
+    }
+    conn.execute("DELETE FROM notes WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
+    // 清除创建时记的时间轴条目(note_id 为 TEXT 存的是 id 字符串)
+    conn.execute("DELETE FROM sticky_note_timeline WHERE note_id = ?1", [id.to_string()])
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+    // 清理离线队列中该便签的 create 记录,避免将来同步时产生幽灵便签
+    let queue_path = data_dir(&app).join("sync_queue.json");
+    if let Ok(s) = std::fs::read_to_string(&queue_path) {
+        if let Ok(mut queue) = serde_json::from_str::<Vec<serde_json::Value>>(&s) {
+            let before = queue.len();
+            queue.retain(|e| !(e["entity"] == "note" && e["id"] == id));
+            if queue.len() != before {
+                let _ = std::fs::write(&queue_path, serde_json::to_string(&queue).unwrap_or_default());
+            }
+        }
+    }
+    let _ = app.emit("notes-updated", ());
+    Ok(true)
+}
+
 // open_note 也会创建窗口,同样需要 async 避免 Windows 死锁
 #[tauri::command]
 async fn open_note(app: tauri::AppHandle, id: i64) -> Result<(), String> {
@@ -588,7 +627,10 @@ async fn open_note(app: tauri::AppHandle, id: i64) -> Result<(), String> {
 
 /// 关闭指定便签窗口(隐私分类锁定时关闭已打开的隐私便签)
 #[tauri::command]
-fn close_note_window(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+fn close_note_window(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64) -> Result<(), String> {
+    // 管理器「已打开」关闭是直接销毁窗口,不触发 CloseRequested;
+    // 这里同样执行空便签丢弃,保证三条关闭路径行为一致
+    let _ = discard_empty_note(app.clone(), state, id);
     if let Some(w) = app.get_webview_window(&format!("note-{}", id)) {
         let _ = w.destroy();
     }
@@ -1238,6 +1280,7 @@ fn main() {
             get_notes, add_note, update_note, set_note_pinned, set_note_color, set_note_style,
             delete_note, restore_note, delete_note_forever, auto_clean_trash,
             get_note, open_note, get_open_note_ids, close_note_window, duplicate_note, reorder_notes,
+            discard_empty_note,
             get_all_todos, add_todo, update_todo, delete_todo,
             get_all_timeline,
             get_attachments, pick_attachment, add_attachment_path, delete_attachment,
@@ -1282,6 +1325,10 @@ fn main() {
                 api.prevent_close();
                 // 便签窗口经系统途径关闭(Alt+F4 等)也是隐藏,通知管理器刷新「已打开」
                 if window.label().starts_with("note-") {
+                    // 未填写任何内容的便签关闭即删除(与窗口内 × 按钮同一逻辑,兜底系统关闭路径)
+                    if let Some(id) = window.label().strip_prefix("note-").and_then(|s| s.parse::<i64>().ok()) {
+                        let _ = discard_empty_note(window.app_handle().clone(), window.state::<AppState>(), id);
+                    }
                     let _ = window.app_handle().emit_to("main", "note-window-hidden", ());
                 }
             }
