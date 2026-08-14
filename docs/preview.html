@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>便签应用 - UI 预览</title>
+<style>
+  /* ============ 基础重置 & 全局 ============ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #0d0d11;
+    color: #e8e8e8;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  /* ============ 设计系统变量 ============ */
+  :root {
+    --bg-primary: rgba(20, 20, 25, 0.92);
+    --bg-secondary: rgba(26, 26, 32, 0.95);
+    --bg-card: rgba(30, 30, 38, 0.8);
+    --bg-hover: rgba(255, 255, 255, 0.04);
+    --bg-active: rgba(255, 255, 255, 0.06);
+    --border: rgba(255, 255, 255, 0.06);
+    --border-divider: rgba(255, 255, 255, 0.08);
+    --text-primary: #e8e8e8;
+    --text-secondary: #a0a0a0;
+    --text-muted: #666666;
+    --brand: #4c9eeb;
+    --brand-dim: rgba(76, 158, 235, 0.15);
+    --success: #4caf50;
+    --error: #f44336;
+    --radius: 4px;
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 12px;
+    --spacing-lg: 16px;
+    --spacing-xl: 24px;
+    --spacing-2xl: 32px;
+  }
+
+  /* ============ 应用容器 ============ */
+  .app {
+    width: 280px;
+    height: 600px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+
+  /* ============ 标题栏 ============ */
+  .titlebar {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--spacing-md);
+    background: rgba(15, 15, 20, 0.6);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+  .titlebar-left {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+  .titlebar-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: 0.5px;
+  }
+  .sync-status {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: 10px;
+    color: var(--text-secondary);
+  }
+  .sync-icon { width: 14px; height: 14px; }
+  .sync-icon.synced { color: var(--success); }
+  .sync-icon.syncing { color: var(--brand); animation: spin 1.5s linear infinite; }
+  .sync-icon.offline { color: var(--text-muted); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .titlebar-right {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    -webkit-app-region: no-drag;
+  }
+  .titlebar-btn {
+    width: 28px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: background 0.15s;
+  }
+  .titlebar-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .titlebar-btn.close:hover { background: var(--error); color: white; }
+  .titlebar-btn svg { width: 14px; height: 14px; }
+
+  /* ============ 主体区域 ============ */
+  .main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ============ 分类栏 ============ */
+  .sidebar {
+    width: 36px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-sm) 0;
+    flex-shrink: 0;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 8px 0;
+    font-size: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    position: relative;
+  }
+  .sidebar-item span { display: none; }
+  .sidebar-item:hover span {
+    display: block;
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    white-space: nowrap;
+    font-size: 11px;
+    z-index: 10;
+    margin-left: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .sidebar-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .sidebar-item.active {
+    color: var(--text-primary);
+    background: var(--bg-active);
+  }
+  .sidebar-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    background: var(--brand);
+    border-radius: 1px;
+  }
+  .sidebar-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .sidebar-divider {
+    height: 1px;
+    background: var(--border-divider);
+    margin: var(--spacing-sm) 6px;
+    width: calc(100% - 12px);
+  }
+  .sidebar-bottom {
+    margin-top: auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ============ 内容区 ============ */
+  .content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* 标签切换 + 搜索栏 */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    height: 40px;
+  }
+  .tabs {
+    display: flex;
+    gap: var(--spacing-xs);
+  }
+  .tab {
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--radius);
+    transition: color 0.15s;
+    position: relative;
+  }
+  .tab:hover { color: var(--text-secondary); }
+  .tab.active { color: var(--brand); }
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    left: 0;
+    right: 0;
+    height: 1.5px;
+    background: var(--brand);
+    border-radius: 1px;
+  }
+  .tab-sep { color: var(--text-muted); font-size: 12px; margin: 0 2px; }
+
+  .search-box {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px var(--spacing-sm);
+    width: 120px;
+    transition: border-color 0.15s;
+  }
+  .search-box:focus-within { border-color: var(--brand); }
+  .search-box svg { width: 14px; height: 14px; color: var(--text-muted); flex-shrink: 0; }
+  .search-box input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    width: 100%;
+  }
+  .search-box input::placeholder { color: var(--text-muted); }
+  .search-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .toolbar {
+    padding: var(--spacing-sm) var(--spacing-sm);
+  }
+
+  /* ============ 便签卡片列表 ============ */
+  .note-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .note-list::-webkit-scrollbar { width: 4px; }
+  .note-list::-webkit-scrollbar-track { background: transparent; }
+  .note-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+  .note-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--spacing-sm) var(--spacing-md);
+    display: flex;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+    transition: background 0.15s;
+    position: relative;
+  }
+  .note-card:hover { background: var(--bg-hover); }
+
+  .note-color-bar {
+    width: 4px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    align-self: stretch;
+  }
+  .note-body {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .note-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-xs);
+  }
+  .note-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+  .note-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+  }
+  .note-card:hover .note-actions { opacity: 1; }
+  .note-action-btn {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 2px;
+    transition: color 0.15s;
+  }
+  .note-action-btn:hover { color: var(--text-primary); }
+  .note-action-btn svg { width: 13px; height: 13px; }
+  .note-preview {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+  }
+  .note-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-top: 1px;
+  }
+  .note-tag {
+    font-size: 10px;
+    color: var(--brand);
+    background: var(--brand-dim);
+    padding: 1px 6px;
+    border-radius: 2px;
+  }
+
+  /* ============ 右键菜单预览 ============ */
+  .context-menu {
+    position: absolute;
+    top: 120px;
+    left: 60px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--spacing-xs) 0;
+    min-width: 140px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 100;
+    display: none;
+  }
+  .context-menu.show { display: block; }
+  .context-menu-item {
+    padding: 6px var(--spacing-md);
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .context-menu-item:hover { background: var(--bg-hover); }
+  .context-menu-item.danger { color: var(--error); }
+  .context-menu-item.danger:hover { background: rgba(244,67,54,0.1); }
+  .context-menu-divider {
+    height: 1px;
+    background: var(--border-divider);
+    margin: var(--spacing-xs) 0;
+  }
+
+  /* ============ 登录面板预览 ============ */
+  .login-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg-primary);
+    z-index: 50;
+    display: none;
+    flex-direction: column;
+    padding: var(--spacing-lg);
+  }
+  .login-panel.show { display: flex; }
+  .login-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xl);
+  }
+  .login-back {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: background 0.15s;
+  }
+  .login-back:hover { background: var(--bg-hover); }
+  .login-back svg { width: 16px; height: 16px; }
+  .login-title { font-size: 14px; font-weight: 600; }
+  .login-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+  .login-input {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--spacing-sm) var(--spacing-md);
+    color: var(--text-primary);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .login-input:focus { border-color: var(--brand); }
+  .login-input::placeholder { color: var(--text-muted); }
+  .login-btn {
+    background: var(--brand);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    padding: var(--spacing-sm) var(--spacing-lg);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .login-btn:hover { opacity: 0.9; }
+  .login-link {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .login-link a { color: var(--brand); text-decoration: none; }
+  .login-link a:hover { text-decoration: underline; }
+  .login-error {
+    font-size: 11px;
+    color: var(--error);
+    display: none;
+  }
+
+  /* ============ 时间轴预览 ============ */
+  .timeline-view {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+  }
+  .timeline-view.show { display: flex; }
+  .timeline-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .timeline-filters {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+  .timeline-filter-btn {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2px 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .timeline-filter-btn:hover { border-color: var(--text-muted); color: var(--text-secondary); }
+  .timeline-filter-btn.active { border-color: var(--brand); color: var(--brand); background: var(--brand-dim); }
+
+  .timeline-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+  .timeline-group-title {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: var(--spacing-md);
+    margin-top: var(--spacing-lg);
+  }
+  .timeline-group-title:first-child { margin-top: 0; }
+  .timeline-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) 0;
+    border-left: 2px solid var(--border);
+    padding-left: var(--spacing-md);
+    margin-left: 4px;
+  }
+  .timeline-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+    margin-top: 4px;
+    margin-left: -21px;
+  }
+  .timeline-dot.create { background: var(--success); }
+  .timeline-dot.update { background: var(--brand); }
+  .timeline-dot.delete { background: var(--error); }
+  .timeline-item-body { flex: 1; }
+  .timeline-item-text {
+    font-size: 12px;
+    color: var(--text-primary);
+    line-height: 1.4;
+  }
+  .timeline-item-text .note-ref { color: var(--brand); }
+  .timeline-item-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+  .timeline-device {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .timeline-device svg { width: 10px; height: 10px; }
+
+  /* ============ 通用工具 ============ */
+  .hidden { display: none !important; }
+
+  /* ============ 状态提示 ============ */
+  .state-label {
+    position: absolute;
+    bottom: var(--spacing-lg);
+    right: var(--spacing-xl);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: rgba(0,0,0,0.6);
+    padding: 4px 8px;
+    border-radius: var(--radius);
+  }
+
+  /* ============ 切换按钮 ============ */
+  .preview-controls {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: var(--spacing-sm);
+    z-index: 200;
+  }
+  .preview-btn {
+    background: rgba(30,30,38,0.95);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .preview-btn:hover { border-color: var(--brand); color: var(--brand); }
+  .preview-btn.active { background: var(--brand); color: white; border-color: var(--brand); }
+</style>
+</head>
+<body>
+
+<!-- 预览切换按钮 -->
+<div class="preview-controls">
+  <button class="preview-btn active" onclick="showView('main')">主界面</button>
+  <button class="preview-btn" onclick="showView('login')">登录面板</button>
+  <button class="preview-btn" onclick="showView('timeline')">时间轴</button>
+  <button class="preview-btn" onclick="showView('context')">右键菜单</button>
+</div>
+
+<div class="app" id="app">
+
+  <!-- ======== 标题栏 ======== -->
+  <div class="titlebar">
+    <div class="titlebar-left">
+      <svg class="sync-icon synced" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
+        <path d="m2 20 3-3"/>
+        <path d="m14 8 3-3"/>
+      </svg>
+      <span class="titlebar-title">便签</span>
+      <span class="sync-status">已同步 · 10:30</span>
+    </div>
+    <div class="titlebar-right">
+      <button class="titlebar-btn" title="登录">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+      </button>
+      <button class="titlebar-btn" title="主题">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/>
+          <path d="M12 20v2"/>
+          <path d="m4.93 4.93 1.41 1.41"/>
+          <path d="m17.66 17.66 1.41 1.41"/>
+          <path d="M2 12h2"/>
+          <path d="M20 12h2"/>
+          <path d="m6.34 17.66-1.41 1.41"/>
+          <path d="m19.07 4.93-1.41 1.41"/>
+        </svg>
+      </button>
+      <button class="titlebar-btn" title="最小化">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14"/>
+        </svg>
+      </button>
+      <button class="titlebar-btn close" title="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 6 6 18"/>
+          <path d="m6 6 12 12"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ======== 主体 ======== -->
+  <div class="main">
+
+    <!-- 分类栏 -->
+    <div class="sidebar">
+      <div class="sidebar-item active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="7" height="7" x="3" y="3" rx="1"/>
+          <rect width="7" height="7" x="14" y="3" rx="1"/>
+          <rect width="7" height="7" x="14" y="14" rx="1"/>
+          <rect width="7" height="7" x="3" y="14" rx="1"/>
+        </svg>
+        <span>全部</span>
+      </div>
+      <div class="sidebar-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+        </svg>
+        <span>工作</span>
+      </div>
+      <div class="sidebar-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+        </svg>
+        <span>个人</span>
+      </div>
+      <div class="sidebar-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+        </svg>
+        <span>学习</span>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <div class="sidebar-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <span>隐私</span>
+      </div>
+      <div class="sidebar-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>时间轴</span>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="sidebar-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"/>
+            <path d="M12 5v14"/>
+          </svg>
+          <span>新增分类</span>
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18"/>
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+            <line x1="10" x2="10" y1="11" y2="17"/>
+            <line x1="14" x2="14" y1="11" y2="17"/>
+          </svg>
+          <span>回收站</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span>设置</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 内容区 -->
+    <div class="content" id="mainView">
+
+      <!-- 标签切换 + 搜索栏 -->
+      <div class="toolbar">
+        <div class="tabs">
+          <span class="tab active" onclick="switchTab(this)">便签</span>
+          <span class="tab-sep">|</span>
+          <span class="tab" onclick="switchTab(this)">待办</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.3-4.3"/>
+            </svg>
+            <input type="text" placeholder="搜索...">
+          </div>
+          <span class="search-count">12 条</span>
+        </div>
+      </div>
+
+      <!-- 便签卡片列表 -->
+      <div class="note-list">
+
+        <!-- 置顶分隔线 -->
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">
+          <span style="font-size:9px;color:var(--text-muted);white-space:nowrap;">📌 置顶</span>
+          <div style="flex:1;height:1px;background:var(--border-divider);"></div>
+        </div>
+
+        <!-- 置顶卡片 -->
+        <div class="note-card">
+          <div class="note-color-bar" style="background:#FFE066;"></div>
+          <div class="note-body">
+            <div class="note-header">
+              <span class="note-title">📋 项目进度跟踪</span>
+              <div class="note-actions">
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+              </div>
+            </div>
+            <div class="note-preview">Q3 发布计划 - 前端重构 80%，后端 API 90%，待完成性能优化...</div>
+            <div class="note-meta">
+              <span>10:30</span>
+              <span class="note-tag">工作</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="note-card">
+          <div class="note-color-bar" style="background:#A8E6CF;"></div>
+          <div class="note-body">
+            <div class="note-header">
+              <span class="note-title">🛒 购物清单</span>
+              <div class="note-actions">
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+              </div>
+            </div>
+            <div class="note-preview">☐ 牛奶、☐ 鸡蛋、☐ 面包、☐ 水果、☐ 洗衣液</div>
+            <div class="note-meta">
+              <span>09:15</span>
+              <span class="note-tag">个人</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分隔线 -->
+        <div style="height:1px;background:var(--border-divider);margin:2px 0;"></div>
+
+        <div class="note-card">
+          <div class="note-color-bar" style="background:#66D9EF;"></div>
+          <div class="note-body">
+            <div class="note-header">
+              <span class="note-title">会议记录 - 周一例会</span>
+              <div class="note-actions">
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+              </div>
+            </div>
+            <div class="note-preview">讨论了 Q3 发布计划，确认前端重构方案，分配任务给各组</div>
+            <div class="note-meta">
+              <span>昨天 14:20</span>
+              <span class="note-tag">工作</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="note-card">
+          <div class="note-color-bar" style="background:#FFB3BA;"></div>
+          <div class="note-body">
+            <div class="note-header">
+              <span class="note-title">学习笔记 - Rust 生命周期</span>
+              <div class="note-actions">
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+              </div>
+            </div>
+            <div class="note-preview">'a 表示引用的生命周期，编译器通过它确保引用的有效性</div>
+            <div class="note-meta">
+              <span>昨天 09:00</span>
+              <span class="note-tag">学习</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="note-card">
+          <div class="note-color-bar" style="background:#D4A5FF;"></div>
+          <div class="note-body">
+            <div class="note-header">
+              <span class="note-title">旅行计划 - 国庆出行</span>
+              <div class="note-actions">
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>
+                <button class="note-action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+              </div>
+            </div>
+            <div class="note-preview">目的地：云南大理，5 天行程，Day1 古城闲逛，Day2 洱海环湖</div>
+            <div class="note-meta">
+              <span>3天前</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- 时间轴视图 -->
+    <div class="timeline-view" id="timelineView">
+      <div class="timeline-header">
+        <div class="timeline-filters">
+          <button class="timeline-filter-btn active">今天</button>
+          <button class="timeline-filter-btn">本周</button>
+          <button class="timeline-filter-btn">本月</button>
+          <button class="timeline-filter-btn">全部</button>
+          <div style="width:1px;height:16px;background:var(--border-divider);margin:0 4px;"></div>
+          <button class="timeline-filter-btn">
+            <svg style="width:12px;height:12px;vertical-align:middle;margin-right:4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            筛选
+          </button>
+          <div style="width:1px;height:16px;background:var(--border-divider);margin:0 4px;"></div>
+          <div class="search-box" style="width:80px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.3-4.3"/>
+            </svg>
+            <input type="text" placeholder="搜索标题...">
+          </div>
+        </div>
+      </div>
+      <div class="timeline-list">
+        <div class="timeline-group-title">今天</div>
+        <div class="timeline-item">
+          <div class="timeline-dot update"></div>
+          <div class="timeline-item-body">
+            <div class="timeline-item-text">修改了 <span class="note-ref">「项目进度跟踪」</span></div>
+            <div class="timeline-item-meta">
+              <span>10:30</span>
+              <span class="timeline-device">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+                我的电脑
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-dot create"></div>
+          <div class="timeline-item-body">
+            <div class="timeline-item-text">新建了 <span class="note-ref">「购物清单」</span></div>
+            <div class="timeline-item-meta">
+              <span>09:15</span>
+              <span class="timeline-device">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+                手机
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-dot update"></div>
+          <div class="timeline-item-body">
+            <div class="timeline-item-text">完成了 <span class="note-ref">「买牛奶」</span>（购物清单）</div>
+            <div class="timeline-item-meta">
+              <span>09:00</span>
+              <span class="timeline-device">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+                我的电脑
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-group-title">昨天</div>
+        <div class="timeline-item">
+          <div class="timeline-dot delete"></div>
+          <div class="timeline-item-body">
+            <div class="timeline-item-text">删除了 <span class="note-ref">「过期通知」</span></div>
+            <div class="timeline-item-meta">
+              <span>18:00</span>
+              <span class="timeline-device">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+                手机
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-dot update"></div>
+          <div class="timeline-item-body">
+            <div class="timeline-item-text">修改了 <span class="note-ref">「会议记录」</span></div>
+            <div class="timeline-item-meta">
+              <span>14:20</span>
+              <span class="timeline-device">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+                我的电脑
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-dot create"></div>
+          <div class="timeline-item-body">
+            <div class="timeline-item-text">新建了 <span class="note-ref">「购物清单」</span></div>
+            <div class="timeline-item-meta">
+              <span>10:00</span>
+              <span class="timeline-device">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+                我的电脑
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 登录面板 -->
+    <div class="login-panel" id="loginView">
+      <div class="login-header">
+        <button class="login-back" onclick="showView('main')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m12 19-7-7 7-7"/>
+            <path d="M19 12H5"/>
+          </svg>
+        </button>
+        <span class="login-title">登录</span>
+      </div>
+      <div class="login-form">
+        <input class="login-input" type="email" placeholder="邮箱地址">
+        <input class="login-input" type="password" placeholder="密码">
+        <div class="login-error" id="loginError">邮箱或密码错误，请重新输入</div>
+        <button class="login-btn" onclick="showError()">登 录</button>
+        <div class="login-link">没有账号？<a href="#">去注册</a></div>
+      </div>
+    </div>
+
+    <!-- 右键菜单 -->
+    <div class="context-menu" id="contextMenu">
+      <div class="context-menu-item">在窗口中打开</div>
+      <div class="context-menu-item">置顶</div>
+      <div class="context-menu-item">颜色</div>
+      <div class="context-menu-item">复制便签</div>
+      <div class="context-menu-item">导出</div>
+      <div class="context-menu-divider"></div>
+      <div class="context-menu-item danger">删除</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  function showView(view) {
+    document.getElementById('mainView').classList.toggle('hidden', view !== 'main' && view !== 'context');
+    document.getElementById('timelineView').classList.toggle('show', view === 'timeline');
+    document.getElementById('timelineView').classList.toggle('hidden', view !== 'timeline');
+    document.getElementById('loginView').classList.toggle('show', view === 'login');
+    document.getElementById('contextMenu').classList.toggle('show', view === 'context');
+
+    document.querySelectorAll('.preview-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+
+    // 同步侧边栏时间轴选中态
+    document.querySelectorAll('.sidebar-item').forEach(item => {
+      if (item.querySelector('span')?.textContent === '时间轴') {
+        item.classList.toggle('active', view === 'timeline');
+      }
+      if (item.querySelector('span')?.textContent === '全部') {
+        item.classList.toggle('active', view === 'main' || view === 'context');
+      }
+    });
+  }
+
+  function switchTab(el) {
+    el.parentElement.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  function showError() {
+    const err = document.getElementById('loginError');
+    err.style.display = 'block';
+    setTimeout(() => err.style.display = 'none', 3000);
+  }
+
+  // 点击空白关闭右键菜单
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.context-menu') && !e.target.closest('.preview-btn')) {
+      document.getElementById('contextMenu').classList.remove('show');
+    }
+  });
+</script>
+
+</body>
+</html>

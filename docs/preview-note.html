@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>便签窗口 - UI 预览</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #0d0d11;
+    color: #e8e8e8;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px;
+    gap: 40px;
+    flex-wrap: wrap;
+  }
+
+  :root {
+    --bg-primary: rgba(20, 20, 25, 0.92);
+    --bg-secondary: rgba(26, 26, 32, 0.95);
+    --bg-card: rgba(30, 30, 38, 0.8);
+    --bg-hover: rgba(255, 255, 255, 0.04);
+    --border: rgba(255, 255, 255, 0.06);
+    --border-divider: rgba(255, 255, 255, 0.08);
+    --text-primary: #e8e8e8;
+    --text-secondary: #a0a0a0;
+    --text-muted: #666666;
+    --brand: #4c9eeb;
+    --brand-dim: rgba(76, 158, 235, 0.15);
+    --error: #f44336;
+    --radius: 4px;
+  }
+
+  .label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ============ 便签窗口容器 ============ */
+  .note-window {
+    width: 360px;
+    height: 420px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    position: relative;
+  }
+  .note-window.compact {
+    width: 240px;
+    height: 200px;
+  }
+
+  /* ============ 标题栏 ============ */
+  .note-header {
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    background: rgba(15, 15, 20, 0.4);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    cursor: move;
+    user-select: none;
+  }
+  .note-header-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+  }
+  .note-header-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .note-header-time {
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .note-header-actions {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .note-header-btn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: background 0.15s, color 0.15s;
+  }
+  .note-header-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .note-header-btn svg { width: 14px; height: 14px; }
+  .note-header-btn.pinned { color: var(--brand); }
+
+  /* ============ 内容区 ============ */
+  .note-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 10px 12px 8px;
+  }
+
+  /* 标题输入 */
+  .title-input {
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding: 4px 0;
+    margin-bottom: 8px;
+    border-bottom: 1px dashed var(--border-divider);
+    font-family: inherit;
+  }
+  .title-input::placeholder { color: var(--text-muted); }
+
+  /* 内容文本区 */
+  .content-area {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    border: none;
+    outline: none;
+    resize: none;
+    background: transparent;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text-primary);
+    font-family: inherit;
+    overflow-y: auto;
+  }
+  .content-area::-webkit-scrollbar { width: 3px; }
+  .content-area::-webkit-scrollbar-track { background: transparent; }
+  .content-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+  .content-area::placeholder { color: var(--text-muted); }
+
+  /* ============ 待办清单 ============ */
+  .todo-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .todo-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 4px;
+    border-radius: var(--radius);
+    transition: background 0.15s;
+  }
+  .todo-item:hover { background: var(--bg-hover); }
+  .todo-checkbox {
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--text-muted);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .todo-checkbox.checked {
+    background: var(--brand);
+    border-color: var(--brand);
+  }
+  .todo-checkbox svg { width: 10px; height: 10px; color: white; display: none; }
+  .todo-checkbox.checked svg { display: block; }
+  .todo-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-primary);
+    border: none;
+    outline: none;
+    background: transparent;
+    font-family: inherit;
+  }
+  .todo-item.done .todo-text {
+    text-decoration: line-through;
+    color: var(--text-muted);
+  }
+  .todo-delete {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+  }
+  .todo-item:hover .todo-delete { opacity: 1; }
+  .todo-delete:hover { color: var(--error); }
+  .todo-delete svg { width: 12px; height: 12px; }
+
+  .todo-add {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 4px;
+    border-top: 1px dashed var(--border-divider);
+    margin-top: 4px;
+  }
+  .todo-add svg { width: 14px; height: 14px; color: var(--text-muted); flex-shrink: 0; }
+  .todo-add input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: inherit;
+  }
+  .todo-add input::placeholder { color: var(--text-muted); }
+
+  /* ============ 底部状态栏 ============ */
+  .note-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    height: 24px;
+  }
+  .note-footer-left {
+    font-size: 10px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .save-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--brand);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .note-footer-right {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* ============ 缩放手柄 ============ */
+  .resize-handle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+  }
+  .resize-handle::after {
+    content: '';
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid rgba(255,255,255,0.15);
+    border-bottom: 2px solid rgba(255,255,255,0.15);
+    border-bottom-right-radius: 2px;
+  }
+
+  /* ============ 紧凑模式 ============ */
+  .compact-summary {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-all;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .compact-todos {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: hidden;
+  }
+  .compact-todo {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .compact-todo .ct-check {
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid var(--text-muted);
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .compact-todo .ct-check.done {
+    background: var(--brand);
+    border-color: var(--brand);
+  }
+  .compact-todo.done { color: var(--text-muted); }
+  .compact-todo.done .ct-text { text-decoration: line-through; }
+  .compact-todo .ct-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .compact-more {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  /* ============ 右键菜单 ============ */
+  .context-menu {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px 0;
+    min-width: 150px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 100;
+    display: none;
+  }
+  .context-menu.show { display: block; }
+  .cm-item {
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .cm-item:hover { background: var(--bg-hover); }
+  .cm-item.danger { color: var(--error); }
+  .cm-item.danger:hover { background: rgba(244,67,54,0.1); }
+  .cm-divider {
+    height: 1px;
+    background: var(--border-divider);
+    margin: 4px 0;
+  }
+  .cm-label {
+    padding: 4px 14px 2px;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .cm-colors {
+    display: flex;
+    gap: 6px;
+    padding: 6px 14px;
+  }
+  .cm-color {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .cm-color:hover { border-color: var(--text-primary); transform: scale(1.15); }
+  .cm-color.active { border-color: var(--brand); }
+
+  /* ============ 切换按钮 ============ */
+  .preview-controls {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    z-index: 200;
+  }
+  .preview-btn {
+    background: rgba(30,30,38,0.95);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .preview-btn:hover { border-color: var(--brand); color: var(--brand); }
+  .preview-btn.active { background: var(--brand); color: white; border-color: var(--brand); }
+</style>
+</head>
+<body>
+
+<div class="preview-controls">
+  <button class="preview-btn active" onclick="showView('text')">文字便签</button>
+  <button class="preview-btn" onclick="showView('todo')">待办便签</button>
+  <button class="preview-btn" onclick="showView('compact')">紧凑模式</button>
+  <button class="preview-btn" onclick="showView('context')">右键菜单</button>
+</div>
+
+<!-- ======== 文字便签（展开态） ======== -->
+<div id="view-text">
+  <div class="label">展开态 · 360 × 420</div>
+  <div class="note-window">
+    <div class="note-header">
+      <div class="note-header-left">
+        <span class="note-header-title">📋 项目进度跟踪</span>
+      </div>
+      <div class="note-header-actions">
+        <button class="note-header-btn pinned" title="已置顶">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+        </button>
+        <button class="note-header-btn" title="收起">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg>
+        </button>
+        <button class="note-header-btn" title="在窗口中打开">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+        </button>
+        <button class="note-header-btn" title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="note-body">
+      <input class="title-input" value="📋 项目进度跟踪" placeholder="输入标题...">
+      <textarea class="content-area" placeholder="输入内容...">Q3 产品发布计划
+
+前端重构进度：80%
+- 组件库迁移完成
+- 状态管理重构中
+- 性能优化待开始
+
+后端 API：已完成 90%
+- 用户模块 ✓
+- 便签同步 ✓
+- 文件上传 待测试
+
+待完成：
+1. 性能优化和兼容性测试
+2. 编写集成测试用例
+3. 准备发布文档</textarea>
+    </div>
+    <div class="note-footer">
+      <div class="note-footer-left">
+        <span class="save-dot"></span>
+        <span>已保存</span>
+      </div>
+      <div class="note-footer-right">128 字</div>
+    </div>
+    <div class="resize-handle"></div>
+  </div>
+</div>
+
+<!-- ======== 待办便签（展开态） ======== -->
+<div id="view-todo" style="display:none;">
+  <div class="label">待办模式 · 360 × 420</div>
+  <div class="note-window">
+    <div class="note-header">
+      <div class="note-header-left">
+        <span class="note-header-title">🛒 购物清单</span>
+      </div>
+      <div class="note-header-actions">
+        <button class="note-header-btn" title="置顶">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+        </button>
+        <button class="note-header-btn" title="收起">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg>
+        </button>
+        <button class="note-header-btn" title="在窗口中打开">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+        </button>
+        <button class="note-header-btn" title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="note-body">
+      <input class="title-input" value="🛒 购物清单" placeholder="输入标题...">
+      <div class="todo-list">
+        <div class="todo-item">
+          <div class="todo-checkbox checked">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <span class="todo-text" style="text-decoration:line-through; color:var(--text-muted);">牛奶</span>
+          <button class="todo-delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+        <div class="todo-item">
+          <div class="todo-checkbox">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <input class="todo-text" value="鸡蛋">
+          <button class="todo-delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+        <div class="todo-item">
+          <div class="todo-checkbox">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <input class="todo-text" value="面包">
+          <button class="todo-delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+        <div class="todo-item">
+          <div class="todo-checkbox">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <input class="todo-text" value="水果（苹果、香蕉）">
+          <button class="todo-delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+        <div class="todo-item">
+          <div class="todo-checkbox">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <input class="todo-text" value="洗衣液">
+          <button class="todo-delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+      </div>
+      <div class="todo-add">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        <input placeholder="添加待办项...">
+      </div>
+    </div>
+    <div class="note-footer">
+      <div class="note-footer-left">
+        <span>1/5 已完成</span>
+      </div>
+      <div class="note-footer-right">09:15</div>
+    </div>
+    <div class="resize-handle"></div>
+  </div>
+</div>
+
+<!-- ======== 紧凑模式 ======== -->
+<div id="view-compact" style="display:none;">
+  <div class="label">紧凑态 · 240 × 200</div>
+  <div class="note-window compact">
+    <div class="note-header">
+      <div class="note-header-left">
+        <span class="note-header-title">📋 项目进度跟踪</span>
+      </div>
+      <div class="note-header-actions">
+        <button class="note-header-btn pinned" title="已置顶">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+        </button>
+        <button class="note-header-btn" title="展开">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <button class="note-header-btn" title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="note-body">
+      <div class="compact-summary">Q3 产品发布计划
+
+前端重构进度：80%
+- 组件库迁移完成
+- 状态管理重构中
+- 性能优化待开始</div>
+    </div>
+    <div class="resize-handle"></div>
+  </div>
+</div>
+
+<!-- ======== 右键菜单 ======== -->
+<div id="view-context" style="display:none;">
+  <div class="label">右键菜单</div>
+  <div class="note-window" style="opacity:0.3;">
+    <div class="note-header">
+      <div class="note-header-left"><span class="note-header-title">📋 项目进度跟踪</span></div>
+    </div>
+    <div class="note-body"></div>
+  </div>
+  <div class="context-menu show" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);">
+    <div class="cm-item">
+      <svg style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+      在窗口中打开
+    </div>
+    <div class="cm-item">
+      <svg style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+      置顶
+    </div>
+    <div class="cm-item">
+      <svg style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r="2.5"/><path d="M17.08 14.684A6.971 6.971 0 0 1 19 18a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1 6.971 6.971 0 0 1 1.92-3.316"/><circle cx="8.5" cy="8.5" r="2.5"/></svg>
+      复制便签
+    </div>
+    <div class="cm-label">颜色</div>
+    <div class="cm-colors">
+      <div class="cm-color active" style="background:#FFE066;" title="黄"></div>
+      <div class="cm-color" style="background:#A8E6CF;" title="绿"></div>
+      <div class="cm-color" style="background:#66D9EF;" title="蓝"></div>
+      <div class="cm-color" style="background:#FFB3BA;" title="粉"></div>
+      <div class="cm-color" style="background:#D4A5FF;" title="紫"></div>
+      <div class="cm-color" style="background:#FFB86C;" title="橙"></div>
+    </div>
+    <div class="cm-item">
+      <svg style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+      导出
+    </div>
+    <div class="cm-divider"></div>
+    <div class="cm-item danger">
+      <svg style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+      删除
+    </div>
+  </div>
+</div>
+
+<script>
+  function showView(view) {
+    ['text','todo','compact','context'].forEach(v => {
+      document.getElementById('view-' + v).style.display = v === view ? 'block' : 'none';
+    });
+    document.querySelectorAll('.preview-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+  }
+</script>
+
+</body>
+</html>
