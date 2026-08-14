@@ -52,6 +52,26 @@ const DEFAULT_SHORTCUTS: [(&str, &str); 3] = [
     ("capture", "Ctrl+Shift+Q"),
 ];
 
+// ============ 数据目录解析(便携模式) ============
+
+/// 纯逻辑:exe 目录下存在 portable.txt 标记文件时,数据存 exe 旁的 data\ 目录,
+/// 否则回落系统 AppData。拆出纯函数便于单元测试。
+fn resolve_data_dir(exe_dir: Option<&Path>, appdata: &Path) -> std::path::PathBuf {
+    match exe_dir {
+        Some(d) if d.join("portable.txt").exists() => d.join("data"),
+        _ => appdata.to_path_buf(),
+    }
+}
+
+/// 数据目录:便携模式(免安装 exe 旁放 portable.txt)→ exe\data\;
+/// 否则 → 系统 AppData\com.stickynotes.app(与 exe 所在盘无关)。
+fn data_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    resolve_data_dir(exe_dir.as_deref(), &app.path().app_data_dir().unwrap())
+}
+
 // ============ 时间轴 / 离线队列 辅助 ============
 
 fn log_timeline_in(conn: &Connection, device_id: &str, entry: db::TimelineEntry) {
@@ -73,7 +93,7 @@ fn snapshot_json(note: &db::Note) -> Option<String> {
 fn queue_change(app: &tauri::AppHandle, entity: &str, id: i64, action: &str) {
     let state = app.state::<AppState>();
     let _guard = state.queue_lock.lock().unwrap();
-    let path = app.path().app_data_dir().unwrap().join("sync_queue.json");
+    let path = data_dir(app).join("sync_queue.json");
     let mut queue: Vec<serde_json::Value> = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -961,7 +981,7 @@ fn reset_privacy_password(state: tauri::State<AppState>, a1: String, a2: String,
 // ============ commands: 全局快捷键 ============
 
 fn shortcuts_file(app: &tauri::AppHandle) -> std::path::PathBuf {
-    app.path().app_data_dir().unwrap().join("shortcuts.json")
+    data_dir(app).join("shortcuts.json")
 }
 
 fn load_shortcut_map(app: &tauri::AppHandle) -> HashMap<String, String> {
@@ -1116,7 +1136,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
-            let app_dir = app.path().app_data_dir().expect("failed to get app data dir");
+            let app_dir = data_dir(app.handle());
             std::fs::create_dir_all(&app_dir).expect("failed to create app data dir");
             let db_path = app_dir.join("sticky_notes.db");
 
@@ -1282,4 +1302,42 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_data_dir;
+    use std::path::PathBuf;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sticky-notes-test-{}-{}", tag, std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn portable_marker_switches_to_exe_data_dir() {
+        let exe_dir = temp_dir("portable-on");
+        std::fs::write(exe_dir.join("portable.txt"), "").unwrap();
+        let appdata = PathBuf::from(r"C:\Users\x\AppData\Roaming\com.stickynotes.app");
+        assert_eq!(
+            resolve_data_dir(Some(&exe_dir), &appdata),
+            exe_dir.join("data")
+        );
+        std::fs::remove_dir_all(&exe_dir).ok();
+    }
+
+    #[test]
+    fn no_marker_falls_back_to_appdata() {
+        let exe_dir = temp_dir("portable-off");
+        let appdata = PathBuf::from(r"C:\Users\x\AppData\Roaming\com.stickynotes.app");
+        assert_eq!(resolve_data_dir(Some(&exe_dir), &appdata), appdata);
+        std::fs::remove_dir_all(&exe_dir).ok();
+    }
+
+    #[test]
+    fn missing_exe_dir_falls_back_to_appdata() {
+        let appdata = PathBuf::from(r"C:\Users\x\AppData\Roaming\com.stickynotes.app");
+        assert_eq!(resolve_data_dir(None, &appdata), appdata);
+    }
 }
