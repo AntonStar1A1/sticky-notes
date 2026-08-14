@@ -511,6 +511,7 @@ body,
   transition: background 0.15s;
   position: relative;
   overflow: hidden;
+  flex-shrink: 0; /* 便签多时不压缩卡片,由列表滚动承载(否则被压到最小内容高度且无滚动条) */
 }
 
 .note-card:hover {
@@ -526,6 +527,7 @@ body,
   height: 1px;
   margin: 2px 8px;
   background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
 }
 
 .note-card.dragging {
@@ -700,6 +702,7 @@ body,
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .view-empty-sub {
@@ -780,6 +783,7 @@ body,
   background: var(--bg-glass);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  flex-shrink: 0;
 }
 
 /* 未完成/已完成分区(spec 7.13) */
@@ -787,6 +791,7 @@ body,
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .todo-section-title {
@@ -972,6 +977,7 @@ body,
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .trash-card-main {
@@ -1221,6 +1227,7 @@ body,
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .timeline-icon {
