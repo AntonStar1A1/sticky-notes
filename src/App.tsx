@@ -204,7 +204,7 @@ function App() {
       const first = text.split('\n').find((l) => l.trim())?.trim() ?? ''
       const m = first.match(/^https?:\/\/([^/\s]+)/i)
       if (m) return m[1]
-      return first.slice(0, 30) || '新建便签'
+      return first.slice(0, 30)
     }
     const openCreated = (note: Note) => {
       invoke('open_note', { id: note.id }).catch((e) => console.error('打开便签窗口失败:', e))
@@ -367,7 +367,7 @@ function App() {
   const addNote = useCallback(async (type: 'text' | 'todo') => {
     try {
       await invoke<Note>('add_note', {
-        title: type === 'todo' ? '新建待办' : '新建便签',
+        title: '', // 标题留空:窗口内显示浅色占位符,未填写关闭时不保存
         noteType: type,
         categoryId: activeCategoryId,
       })

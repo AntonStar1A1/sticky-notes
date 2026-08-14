@@ -365,10 +365,16 @@ function NoteApp() {
 
   const closeNote = useCallback(async () => {
     await flush()
+    // 新建后未填写任何内容(标题/内容/待办/附件全空)则彻底删除,不留空便签
+    const n = noteRef.current
+    const isEmpty = !!n && !n.title.trim() && !n.content.trim() && todos.length === 0 && attachments.length === 0
+    if (isEmpty) {
+      try { await invoke('discard_empty_note', { id }) } catch (e) { console.error('丢弃空便签失败:', e) }
+    }
     // 先隐藏再通知,避免管理器在窗口仍可见时刷新导致列表不更新
     const ok = await win.hide().then(() => true).catch((e) => { console.error('隐藏便签失败:', e); return false })
     if (ok) emit('note-window-hidden', { id }).catch(() => {})
-  }, [flush])
+  }, [flush, id, todos, attachments])
 
   // 另一窗口改了置顶/删除时同步:先 flush 再重拉
   const refresh = useCallback(async () => {
@@ -600,7 +606,7 @@ function NoteApp() {
             <input
               className="note-title-input"
               value={note.title}
-              placeholder="标题"
+              placeholder={note.note_type === 'todo' ? '新建待办' : '新建便签'}
               onChange={(e) => updateNote({ title: e.target.value })}
             />
             {note.note_type === 'todo' ? (
