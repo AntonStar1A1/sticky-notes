@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "默认权限配置",
-  "windows": ["main", "note-*"],
+  "windows": ["main", "note-*", "capture"],
   "permissions": [
     "core:default",
     "core:window:default",

@@ -51,7 +51,6 @@ export function useEdgeDock(enabled: boolean) {
     const waX = wa.position.toLogical(sf).x
     const waY = wa.position.toLogical(sf).y
     const waW = wa.size.toLogical(sf).width
-    const waH = wa.size.toLogical(sf).height
 
     switch (edge) {
       case 'left':
@@ -351,7 +350,6 @@ export function useEdgeDock(enabled: boolean) {
           const waY = wa.position.toLogical(sf).y
           const waW = wa.size.toLogical(sf).width
           const w = winSizeRef.current.w
-          const h = winSizeRef.current.h
 
           if (lp.x <= waX + DOCK_THRESHOLD) {
             console.log('[EdgeDock] pos check: near left edge, docking')
