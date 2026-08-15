@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { getVersion } from '@tauri-apps/api/app'
 import { Wrench, ShieldCheck, Palette, Keyboard, Info, X, Check } from 'lucide-react'
 import type { PrivacyStatus, ShortcutInfo } from '../types'
 import { THEME_PRESETS, saveTheme, type ThemeName } from '../theme'
@@ -66,6 +67,7 @@ export default function SettingsPanel({ onClose }: Props) {
     // spec 7.11:默认关闭
     return localStorage.getItem('showCharCount') === 'true'
   })
+  const [appVersion, setAppVersion] = useState('')
 
   useEffect(() => {
     setEdgeDockEnabled(edgeDock)
@@ -81,6 +83,8 @@ export default function SettingsPanel({ onClose }: Props) {
   useEffect(() => {
     invoke<ShortcutInfo[]>('get_shortcuts').then(setShortcuts).catch((e) => console.error(e))
     invoke<PrivacyStatus>('get_privacy_status').then(setPrivacyStatus).catch((e) => console.error(e))
+    // 版本号读取编译进二进制的 tauri.conf.json,升级后自动一致,无需手工同步
+    getVersion().then(setAppVersion).catch((e) => console.error(e))
   }, [])
 
   const pickTheme = useCallback((name: ThemeName) => {
@@ -277,7 +281,7 @@ export default function SettingsPanel({ onClose }: Props) {
         {section === 'about' && (
           <div className="settings-section">
             <div className="settings-group-title">关于</div>
-            <div className="about-row"><span>版本</span><span>0.1.0</span></div>
+            <div className="about-row"><span>版本</span><span>{appVersion || '…'}</span></div>
             <div className="about-row"><span>数据存储</span><span>本机应用数据目录(sticky_notes.db)</span></div>
             <div className="settings-note">
               数据仅保存在本机。升级前建议先导出备份(工具栏导出全部);回收站中的便签保留 30 天后自动清理。
