@@ -435,17 +435,18 @@ button {
   cursor: pointer;
 }
 .compact-summary {
-  /* spec 7.10 收起态:内容摘要纯文本,最多 4 行 */
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  /* 收起态:保留原文换行(pre-wrap),不截断,超出可上下滚动查看 */
+  flex: 1;
+  overflow-y: auto;
+  white-space: pre-wrap;
   font-size: 13px;
   line-height: 1.55;
   color: var(--fg, #e8e8ec);
   word-break: break-word;
 }
 .compact-todos {
+  flex: 1;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -476,7 +477,6 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.compact-more,
 .compact-empty {
   font-size: 11px;
   color: var(--fg-faint, #6d6d78);
