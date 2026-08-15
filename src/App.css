@@ -1309,6 +1309,32 @@ body,
   white-space: nowrap;
 }
 
+/* 内容修改的旧/新对比:各最多 3 行,超出省略 */
+.timeline-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+.timeline-diff-line {
+  font-size: 10px;
+  color: var(--fg-faint);
+  padding-left: 6px;
+  border-left: 2px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.timeline-diff-line.old {
+  border-color: #e5534b;
+}
+.timeline-diff-line.new {
+  border-color: #4caf7d;
+}
+
 /* 待办勾选/取消条目的详情折叠开关(spec 7.13 默认折叠) */
 .timeline-detail-toggle {
   display: inline-flex;
@@ -1356,6 +1382,9 @@ body,
   padding: 6px 10px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  /* 窄管理台页码多时导航换行到下一行,不挤占「每页 N 条」选择器 */
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .pager-info {
@@ -1440,6 +1469,10 @@ body,
   border-radius: 6px;
   padding: 4px 0;
   min-width: 150px;
+  /* 窄管理台:菜单不出窗口宽度;展开分组列表后超高滚动,配合 handleContextMenu 的 y 钳制 */
+  max-width: min(250px, calc(100vw - 16px));
+  max-height: 300px;
+  overflow-y: auto;
   z-index: 10000;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
@@ -1483,6 +1516,24 @@ body,
 
 .menu-item.disabled:hover {
   background: transparent;
+}
+
+/* 「移动到分组」就地展开:窄管理台放不下侧边飞层,点击后在菜单内紧贴展开,分组多时整个菜单滚动 */
+.submenu-arrow {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--fg-faint);
+}
+.menu-item-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-item.sub-item {
+  padding-left: 22px;
+  color: var(--fg);
 }
 
 .menu-separator {

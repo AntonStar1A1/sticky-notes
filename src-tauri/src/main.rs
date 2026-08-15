@@ -330,28 +330,21 @@ fn update_note(app: tauri::AppHandle, state: tauri::State<AppState>, note: db::N
     let old = db::get_note_by_id(&conn, note.id).ok();
     db::update_note(&conn, &note).map_err(|e| e.to_string())?;
     if let Some(old) = &old {
-        let cat_change = old.category_id != note.category_id;
+        // 分组移动走原子 set_note_category(整行回写不写 category_id),这里只记标题/内容变更
         let text_change = old.title != note.title || old.content != note.content;
-        if cat_change || text_change {
+        if text_change {
             // 位置/尺寸/透明度变化不记时间轴(拖窗/缩放会刷屏)
             let mut changes = serde_json::Map::new();
             if old.title != note.title {
                 changes.insert("title".to_string(), json!({ "old": old.title, "new": note.title }));
             }
             if old.content != note.content {
-                // 规格 7.13:内容变化不展示具体内容
-                changes.insert("content".to_string(), json!({ "old": "内容已修改", "new": "内容已修改" }));
+                // 内容变化记录前后具体内容,前端按多行差异展示
+                changes.insert("content".to_string(), json!({ "old": old.content, "new": note.content }));
             }
-            if cat_change {
-                changes.insert("category".to_string(), json!({
-                    "old": old.category_id.and_then(|c| db::get_category_name(&conn, c).ok().flatten()),
-                    "new": note.category_id.and_then(|c| db::get_category_name(&conn, c).ok().flatten())
-                }));
-            }
-            let action = if !text_change && cat_change { "move" } else { "update" };
             log_timeline_in(&conn, &state.device_id, db::TimelineEntry {
                 id: db::new_uuid(),
-                action: action.to_string(),
+                action: "update".to_string(),
                 note_id: Some(note.id.to_string()),
                 note_title: Some(note.title.clone()),
                 category_id: note.category_id,
@@ -415,6 +408,43 @@ fn set_note_color(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64,
 fn set_note_style(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64, style: String) -> Result<(), String> {
     let conn = state.db.0.lock().unwrap();
     db::set_note_style(&conn, id, &style).map_err(|e| e.to_string())?;
+    mark_unsynced(&conn, "notes", id);
+    drop(conn);
+    queue_change(&app, "note", id, "update");
+    let _ = app.emit("notes-updated", ());
+    Ok(())
+}
+
+/// 移动分组:原子单字段 UPDATE(同 set_note_pinned 策略),
+/// 便签窗口的整行回写不写 category_id,陈旧快照不可能覆盖移动。
+#[tauri::command]
+fn set_note_category(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64, category_id: Option<i64>) -> Result<(), String> {
+    let conn = state.db.0.lock().unwrap();
+    let old = db::get_note_by_id(&conn, id).ok();
+    db::set_note_category(&conn, id, category_id).map_err(|e| e.to_string())?;
+    if let Some(n) = &old {
+        if n.category_id != category_id {
+            log_timeline_in(&conn, &state.device_id, db::TimelineEntry {
+                id: db::new_uuid(),
+                action: "move".to_string(),
+                note_id: Some(id.to_string()),
+                note_title: Some(n.title.clone()),
+                category_id,
+                category_name: category_id.and_then(|c| db::get_category_name(&conn, c).ok().flatten()),
+                field_changes: Some(json!({
+                    "category": {
+                        "old": n.category_id.and_then(|c| db::get_category_name(&conn, c).ok().flatten()),
+                        "new": category_id.and_then(|c| db::get_category_name(&conn, c).ok().flatten())
+                    }
+                }).to_string()),
+                note_snapshot: None,
+                attachment_name: None,
+                todo_content: None,
+                device_id: None,
+                created_at: String::new(),
+            });
+        }
+    }
     mark_unsynced(&conn, "notes", id);
     drop(conn);
     queue_change(&app, "note", id, "update");
@@ -1277,7 +1307,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_categories, add_category, delete_category, rename_category, reorder_categories,
-            get_notes, add_note, update_note, set_note_pinned, set_note_color, set_note_style,
+            get_notes, add_note, update_note, set_note_pinned, set_note_color, set_note_style, set_note_category,
             delete_note, restore_note, delete_note_forever, auto_clean_trash,
             get_note, open_note, get_open_note_ids, close_note_window, duplicate_note, reorder_notes,
             discard_empty_note,

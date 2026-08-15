@@ -457,11 +457,12 @@ pub fn add_note(conn: &Connection, note: &Note) -> Result<Note> {
 // 专用原子命令变更(set_pinned/set_note_color/set_note_style/reorder/trash/restore),
 // flush 整行写回不可能覆盖它们,消除双窗口陈旧快照竞争(同置顶问题的根治方案)。
 pub fn update_note(conn: &Connection, note: &Note) -> Result<()> {
+    // 不写 category_id:分组移动走原子 set_note_category,防打开中的便签窗口用陈旧快照整行回写覆盖移动(同 is_pinned 策略)
     conn.execute(
-        "UPDATE notes SET title = ?1, content = ?2, note_type = ?3, category_id = ?4, x = ?5, \
-            y = ?6, width = ?7, height = ?8, opacity = ?9, updated_at = CURRENT_TIMESTAMP WHERE id = ?10",
+        "UPDATE notes SET title = ?1, content = ?2, note_type = ?3, x = ?4, \
+            y = ?5, width = ?6, height = ?7, opacity = ?8, updated_at = CURRENT_TIMESTAMP WHERE id = ?9",
         params![
-            note.title, note.content, note.note_type, note.category_id, note.x, note.y,
+            note.title, note.content, note.note_type, note.x, note.y,
             note.width, note.height, note.opacity, note.id
         ],
     )?;
@@ -488,6 +489,14 @@ pub fn set_note_style(conn: &Connection, id: i64, style: &str) -> Result<()> {
     conn.execute(
         "UPDATE notes SET window_style = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
         params![style, id],
+    )?;
+    Ok(())
+}
+
+pub fn set_note_category(conn: &Connection, id: i64, category_id: Option<i64>) -> Result<()> {
+    conn.execute(
+        "UPDATE notes SET category_id = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+        params![category_id, id],
     )?;
     Ok(())
 }
