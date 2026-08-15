@@ -194,23 +194,29 @@ export default function TimelineView({ entries, onOpenNote, onBack }: Props) {
     return nums
   }, [pages, pageClamped])
 
-  const detail = (e: TimelineEntry): string[] => {
-    const parts: string[] = []
+  // 详情行:普通文本单行省略;内容变更单独做旧/新多行对比(最多各 3 行)
+  interface DetailPart { kind: 'text' | 'content'; text: string; old?: string; new?: string }
+  const detail = (e: TimelineEntry): DetailPart[] => {
+    const parts: DetailPart[] = []
     if (e.field_changes) {
       try {
         const changes = JSON.parse(e.field_changes)
         for (const [k, v] of Object.entries(changes)) {
           const { old: o, new: n } = v as { old: unknown; new: unknown }
-          const label = k === 'title' ? '标题' : k === 'content' ? '内容' : k === 'category' ? '分类' : k
-          parts.push(`${label}: ${o} → ${n}`)
+          if (k === 'content') {
+            parts.push({ kind: 'content', text: '内容', old: String(o ?? ''), new: String(n ?? '') })
+          } else {
+            const label = k === 'title' ? '标题' : k === 'category' ? '分类' : k
+            parts.push({ kind: 'text', text: `${label}: ${o} → ${n}` })
+          }
         }
       } catch {
         /* 忽略损坏的 JSON */
       }
     }
-    if (e.todo_content) parts.push(`待办: ${e.todo_content}`)
-    if (e.attachment_name) parts.push(`文件: ${e.attachment_name}`)
-    if (e.category_name && e.action === 'create') parts.push(`分类: ${e.category_name}`)
+    if (e.todo_content) parts.push({ kind: 'text', text: `待办: ${e.todo_content}` })
+    if (e.attachment_name) parts.push({ kind: 'text', text: `文件: ${e.attachment_name}` })
+    if (e.category_name && e.action === 'create') parts.push({ kind: 'text', text: `分类: ${e.category_name}` })
     return parts
   }
 
@@ -344,7 +350,14 @@ export default function TimelineView({ entries, onOpenNote, onBack }: Props) {
                       {details.length > 0 && (!isTodoAction(e) || expandedTodoIds.has(e.id)) && (
                         <div className="timeline-details">
                           {details.map((d, i) => (
-                            <div key={i} className="timeline-detail">{d}</div>
+                            d.kind === 'content' ? (
+                              <div key={i} className="timeline-diff">
+                                <div className="timeline-diff-line old">旧:{d.old || '（空）'}</div>
+                                <div className="timeline-diff-line new">新:{d.new || '（空）'}</div>
+                              </div>
+                            ) : (
+                              <div key={i} className="timeline-detail">{d.text}</div>
+                            )
                           ))}
                         </div>
                       )}

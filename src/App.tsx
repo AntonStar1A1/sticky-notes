@@ -43,6 +43,8 @@ function App() {
   const [sortMode, setSortMode] = useState<SortMode>('updated')
   const [loaded, setLoaded] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
+  // 「移动到分组」就地展开(窄管理台放不下侧边飞层,展开在菜单内部紧贴父级)
+  const [moveMenuOpen, setMoveMenuOpen] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sortMenuOpen, setSortMenuOpen] = useState(false)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
@@ -401,6 +403,16 @@ function App() {
     }
   }, [showError])
 
+  // 移动分组:走原子 set_note_category(后端单字段 UPDATE),便签窗口的整行回写不会覆盖移动
+  const moveNoteToCategory = useCallback(async (noteId: number, categoryId: number | null) => {
+    setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, category_id: categoryId } : n)))
+    try {
+      await invoke('set_note_category', { id: noteId, categoryId })
+    } catch (e) {
+      showError(`移动分组失败: ${e}`)
+    }
+  }, [showError])
+
   const duplicate = useCallback(async (id: number) => {
     try {
       await invoke('duplicate_note', { id })
@@ -477,10 +489,22 @@ function App() {
   const handleContextMenu = useCallback((e: React.MouseEvent, noteId: number | null = null, categoryId: number | null = null) => {
     e.preventDefault()
     e.stopPropagation()
-    setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 160), y: e.clientY, noteId, categoryId })
+    setMoveMenuOpen(false)
+    // 下方放不下时改底部锚定(CSS bottom,菜单底边精确贴鼠标,展开向上生长);其余顶部锚定精确跟随
+    const estH = noteId !== null ? 270 : categoryId !== null ? 90 : 80
+    setContextMenu({
+      x: Math.min(e.clientX, window.innerWidth - 160),
+      y: e.clientY,
+      fromBottom: e.clientY + estH > window.innerHeight - 8,
+      noteId,
+      categoryId,
+    })
   }, [])
 
-  const closeContextMenu = useCallback(() => setContextMenu(null), [])
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null)
+    setMoveMenuOpen(false)
+  }, [])
 
   useEffect(() => {
     const handleClick = () => closeContextMenu()
@@ -1021,7 +1045,13 @@ function App() {
 
       {/* 右键菜单 */}
       {contextMenu && (
-        <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+        <>
+        <div
+          className="context-menu"
+          style={contextMenu.fromBottom
+            ? { left: contextMenu.x, bottom: window.innerHeight - contextMenu.y + 4 }
+            : { left: contextMenu.x, top: contextMenu.y }}
+        >
           {contextMenu.noteId !== null ? (
             <>
               <div className="menu-item" onClick={() => { openNoteInWindow(contextMenu.noteId!); closeContextMenu() }}>
@@ -1030,15 +1060,44 @@ function App() {
               <div className="menu-item" onClick={() => { const n = notes.find((x) => x.id === contextMenu.noteId); if (n) togglePin(n); closeContextMenu() }}>
                 {notes.find((n) => n.id === contextMenu.noteId)?.is_pinned ? '取消置顶' : '置顶'}
               </div>
-              <div className="menu-item" onClick={() => { setColorPicker({ x: contextMenu.x, y: contextMenu.y, noteId: contextMenu.noteId! }); closeContextMenu() }}>
-                颜色
-              </div>
               <div className="menu-item" onClick={() => { duplicate(contextMenu.noteId!); closeContextMenu() }}>
                 复制便签
               </div>
               <div className="menu-item" onClick={() => { exportSingle(contextMenu.noteId!); closeContextMenu() }}>
                 导出
               </div>
+              <div className="menu-separator" />
+              <div
+                className="menu-item has-submenu"
+                onClick={(e) => {
+                  // 就地展开,不触发 window 点击关闭
+                  e.stopPropagation()
+                  if (!moveMenuOpen && !contextMenu.fromBottom) {
+                    // 顶部锚定展开后分组列表可能超高:上移菜单贴住底部(底部锚定的向上生长,无需处理)
+                    setContextMenu((m) => (m && !m.fromBottom && m.y + 308 > window.innerHeight ? { ...m, y: Math.max(8, window.innerHeight - 308) } : m))
+                  }
+                  setMoveMenuOpen(!moveMenuOpen)
+                }}
+              >
+                <span className="menu-item-text">移动到分组</span>
+                <span className="submenu-arrow">{moveMenuOpen ? '▾' : '▸'}</span>
+              </div>
+              {moveMenuOpen && (
+                <>
+                  <div className="menu-item sub-item" onClick={() => { moveNoteToCategory(contextMenu.noteId!, null); closeContextMenu() }}>
+                    <span className="menu-item-text">未分类{notes.find((n) => n.id === contextMenu.noteId)?.category_id == null ? ' ✓' : ''}</span>
+                  </div>
+                  {categories.map((cat) => (
+                    <div
+                      key={cat.id}
+                      className="menu-item sub-item"
+                      onClick={() => { moveNoteToCategory(contextMenu.noteId!, cat.id); closeContextMenu() }}
+                    >
+                      <span className="menu-item-text">{cat.name}{notes.find((n) => n.id === contextMenu.noteId)?.category_id === cat.id ? ' ✓' : ''}</span>
+                    </div>
+                  ))}
+                </>
+              )}
               <div className="menu-separator" />
               <div className="menu-item danger" onClick={() => { deleteNote(contextMenu.noteId!); closeContextMenu() }}>
                 删除
@@ -1075,6 +1134,7 @@ function App() {
             </>
           )}
         </div>
+        </>
       )}
 
       {/* 颜色选择 */}

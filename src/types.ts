@@ -82,6 +82,8 @@ export interface ContextMenu {
   y: number
   noteId: number | null
   categoryId: number | null
+  // 下方放不下时底部锚定:菜单底边贴鼠标,展开分组列表向上生长不溢出
+  fromBottom: boolean
 }
 
 export type SortMode = 'updated' | 'created' | 'title' | 'custom'
