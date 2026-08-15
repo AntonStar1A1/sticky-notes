@@ -506,14 +506,13 @@ function NoteApp() {
     return `${m}月${d}日`
   }
 
-  // 滚轮调节透明度(spec 7.x:展开/收起统一支持,用原生监听以支持 preventDefault)
-  // 展开态下正文/待办/附件列表保留原生滚动,其余区域(头部/状态栏/空白)滚轮调透明度
+  // Ctrl+滚轮调节透明度(用原生监听以支持 preventDefault,拦下浏览器缩放)
+  // 普通滚轮不拦截:收起态滚动查看全文,展开态正文/待办列表保留原生滚动
   useEffect(() => {
     const el = document.querySelector('.note-root')
     if (!el) return
     const onWheel = (e: WheelEvent) => {
-      const t = e.target as HTMLElement
-      if (expanded && t.closest('textarea, input, .todo-list, .attachment-list')) return
+      if (!e.ctrlKey) return
       e.preventDefault()
       const delta = e.deltaY > 0 ? -0.05 : 0.05
       const newOpacity = Math.min(1, Math.max(0.15, noteRef.current!.opacity + delta))
@@ -522,7 +521,7 @@ function NoteApp() {
     const elHtml = el as HTMLElement
     elHtml.addEventListener('wheel', onWheel, { passive: false })
     return () => elHtml.removeEventListener('wheel', onWheel)
-  }, [expanded, updateNote])
+  }, [updateNote])
 
   const retry = useCallback(() => window.location.reload(), [])
 
@@ -594,6 +593,9 @@ function NoteApp() {
             </button>
             <button title={expanded ? '收起' : '展开'} onClick={() => setWindowState(!expanded)}>
               {expanded ? '收起' : '展开'}
+            </button>
+            <button title="最小化" onClick={() => win.minimize().catch(() => {})}>
+              ─
             </button>
             <button className="close-btn" title="隐藏" onClick={closeNote}>
               <X size={14} />
@@ -712,14 +714,13 @@ function NoteApp() {
             {note.note_type === 'todo' ? (
               <>
                 <div className="compact-todos">
-                  {todos.slice(0, 3).map((t) => (
+                  {todos.map((t) => (
                     <div key={t.id} className={`compact-todo ${t.is_done ? 'done' : ''}`}>
                       <span>{t.is_done ? <Check size={11} /> : <Square size={10} />}</span>
                       <span className="compact-todo-text">{t.content}</span>
                     </div>
                   ))}
                 </div>
-                {todos.length > 3 && <div className="compact-more">还有 {todos.length - 3} 项</div>}
                 {todos.length === 0 && <div className="compact-empty">空待办,双击展开编辑</div>}
               </>
             ) : (
