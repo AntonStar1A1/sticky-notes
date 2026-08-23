@@ -162,6 +162,12 @@ body,
   color: var(--fg);
 }
 
+/* 置顶激活态:品牌色底白图钉,悬停保持(置于 hover 之后以覆盖) */
+.title-btn.pinned {
+  background: var(--accent);
+  color: white;
+}
+
 .title-btn.close:hover {
   background: rgba(232, 17, 35, 0.8);
   color: white;

@@ -11,6 +11,8 @@ import {
 import './App.css'
 import type { Category, Note, TodoItem, TimelineEntry, ContextMenu, SortMode, PrivacyStatus } from './types'
 import SettingsPanel, { isEdgeDockEnabled } from './components/SettingsPanel'
+import PinToggleIcon from './components/PinToggleIcon'
+import { isManagerPinned, setManagerPinned, MANAGER_PIN_EVENT } from './managerPin'
 import { useEdgeDock } from './hooks/useEdgeDock'
 import { ToastHost, showToast } from './components/Toast'
 import { ConfirmDialogHost, confirmDialog } from './components/ConfirmDialog'
@@ -57,6 +59,7 @@ function App() {
   const [colorPicker, setColorPicker] = useState<{ x: number; y: number; noteId: number } | null>(null)
   const [openNoteIds, setOpenNoteIds] = useState<number[]>([])
   const [edgeDockEnabled, setEdgeDockEnabled] = useState(isEdgeDockEnabled())
+  const [managerPinned, setManagerPinnedState] = useState(isManagerPinned())
   const [dragOverWindow, setDragOverWindow] = useState(false)
   const [dragId, setDragId] = useState<number | null>(null)
   const [customOrder, setCustomOrder] = useState<number[] | null>(null)
@@ -67,6 +70,13 @@ function App() {
     const next = THEME_PRESETS[(idx + 1 + THEME_PRESETS.length) % THEME_PRESETS.length]
     saveTheme(next.name, customColor)
   }, [])
+  // 管理台窗口置顶:持久化 + 应用窗口属性 + 广播(与便签逐条置顶 DB 链路完全独立)
+  const toggleManagerPin = useCallback(() => {
+    const next = !managerPinned
+    setManagerPinned(next)
+    setManagerPinnedState(next)
+    window.dispatchEvent(new CustomEvent(MANAGER_PIN_EVENT, { detail: next }))
+  }, [managerPinned])
   // 隐私分类(spec 7.11)
   const [privacyStatus, setPrivacyStatus] = useState<PrivacyStatus>({ has_password: false, questions: [] })
   const [privacyMode, setPrivacyMode] = useState<PrivacyMode | null>(null)
@@ -188,6 +198,17 @@ function App() {
     const handler = (e: CustomEvent) => setEdgeDockEnabled(e.detail)
     window.addEventListener('edge-dock-changed', handler as EventListener)
     return () => window.removeEventListener('edge-dock-changed', handler as EventListener)
+  }, [])
+
+  // 管理台置顶:挂载时应用初始状态,后续经 manager-pin-changed 事件实时同步窗口属性
+  useEffect(() => {
+    const applyPin = (pinned: boolean) => {
+      getCurrentWindow().setAlwaysOnTop(pinned).catch((e) => console.error('设置窗口置顶失败:', e))
+    }
+    applyPin(isManagerPinned())
+    const handler = (e: CustomEvent) => applyPin(e.detail)
+    window.addEventListener(MANAGER_PIN_EVENT, handler as EventListener)
+    return () => window.removeEventListener(MANAGER_PIN_EVENT, handler as EventListener)
   }, [])
 
   // 设置面板中隐私密码变化
@@ -644,6 +665,14 @@ function App() {
       <div className="title-bar" data-tauri-drag-region>
         <span className="title-text">便签</span>
         <div className="title-controls">
+          <button
+            className={`title-btn ${managerPinned ? 'pinned' : ''}`}
+            onClick={toggleManagerPin}
+            title={managerPinned ? '取消置顶' : '置顶'}
+            aria-pressed={managerPinned}
+          >
+            <PinToggleIcon pinned={managerPinned} />
+          </button>
           <button
             className="title-btn"
             onClick={cycleTheme}
