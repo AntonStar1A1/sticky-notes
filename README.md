@@ -14,7 +14,7 @@
 - SQLite 本地存储 — 数据全部存在本地
 
 ## 截图
-<img width="560" height="1200" alt="image" src="https://github.com/user-attachments/assets/a9686491-24d8-4f95-88b2-152e575be67e" />
+>todo
 
 
 ## 技术栈
