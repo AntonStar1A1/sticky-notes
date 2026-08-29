@@ -1207,6 +1207,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let app_dir = data_dir(app.handle());
             std::fs::create_dir_all(&app_dir).expect("failed to create app data dir");

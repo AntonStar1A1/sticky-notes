@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
-import { Wrench, ShieldCheck, Palette, Keyboard, Info, X, Check } from 'lucide-react'
+import { Wrench, ShieldCheck, Palette, Keyboard, Info, X, Check, RefreshCw, Download, ExternalLink } from 'lucide-react'
+import { check } from '@tauri-apps/plugin-updater'
 import type { PrivacyStatus, ShortcutInfo } from '../types'
 import { THEME_PRESETS, saveTheme, type ThemeName } from '../theme'
 import { ShortcutInput } from './ShortcutInput'
@@ -68,6 +69,10 @@ export default function SettingsPanel({ onClose }: Props) {
     return localStorage.getItem('showCharCount') === 'true'
   })
   const [appVersion, setAppVersion] = useState('')
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'none' | 'error'>('idle')
+  const [updateVersion, setUpdateVersion] = useState('')
+  const [updateError, setUpdateError] = useState('')
+  const [downloadProgress, setDownloadProgress] = useState(0)
 
   useEffect(() => {
     setEdgeDockEnabled(edgeDock)
@@ -85,6 +90,46 @@ export default function SettingsPanel({ onClose }: Props) {
     invoke<PrivacyStatus>('get_privacy_status').then(setPrivacyStatus).catch((e) => console.error(e))
     // 版本号读取编译进二进制的 tauri.conf.json,升级后自动一致,无需手工同步
     getVersion().then(setAppVersion).catch((e) => console.error(e))
+  }, [])
+
+  const checkUpdate = useCallback(async () => {
+    setUpdateStatus('checking')
+    setUpdateError('')
+    try {
+      const update = await check()
+      if (update) {
+        setUpdateVersion(update.version)
+        setUpdateStatus('available')
+      } else {
+        setUpdateStatus('none')
+      }
+    } catch (e) {
+      setUpdateStatus('error')
+      setUpdateError(String(e))
+    }
+  }, [])
+
+  const doUpdate = useCallback(async () => {
+    setUpdateStatus('downloading')
+    setDownloadProgress(0)
+    try {
+      const update = await check()
+      if (!update) {
+        setUpdateStatus('none')
+        return
+      }
+      await update.downloadAndInstall((event) => {
+        if (event.event === 'Started' && event.data.contentLength) {
+          setDownloadProgress(0)
+        } else if (event.event === 'Progress') {
+          setDownloadProgress((prev) => prev + event.data.chunkLength)
+        }
+      })
+      setUpdateStatus('ready')
+    } catch (e) {
+      setUpdateStatus('error')
+      setUpdateError(String(e))
+    }
   }, [])
 
   const pickTheme = useCallback((name: ThemeName) => {
@@ -281,8 +326,50 @@ export default function SettingsPanel({ onClose }: Props) {
         {section === 'about' && (
           <div className="settings-section">
             <div className="settings-group-title">关于</div>
-            <div className="about-row"><span>版本</span><span>{appVersion || '…'}</span></div>
+            <div className="about-row"><span>版本</span><span>v{appVersion || '…'}</span></div>
             <div className="about-row"><span>数据存储</span><span>本机应用数据目录(sticky_notes.db)</span></div>
+
+            <div className="settings-group-title" style={{ marginTop: 12 }}>检查更新</div>
+            <div className="settings-item">
+              <div className="settings-item-info">
+                <span className="settings-item-label">
+                  {updateStatus === 'idle' && '点击下方按钮检查是否有新版本'}
+                  {updateStatus === 'checking' && '正在检查更新…'}
+                  {updateStatus === 'available' && `发现新版本 v${updateVersion}`}
+                  {updateStatus === 'downloading' && `正在下载 v${updateVersion}…${downloadProgress > 0 ? ` (${(downloadProgress / 1024 / 1024).toFixed(1)} MB)` : ''}`}
+                  {updateStatus === 'ready' && '更新已就绪,请重启应用'}
+                  {updateStatus === 'none' && '当前已是最新版本'}
+                  {updateStatus === 'error' && '检查更新失败'}
+                </span>
+                {updateStatus === 'error' && (
+                  <span className="settings-item-desc" style={{ color: 'var(--text-muted)' }}>{updateError}</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {updateStatus === 'idle' || updateStatus === 'none' || updateStatus === 'error' ? (
+                  <button className="btn btn-ghost btn-sm" onClick={checkUpdate}>
+                    <RefreshCw size={12} /> 检查
+                  </button>
+                ) : null}
+                {updateStatus === 'available' ? (
+                  <button className="btn btn-primary btn-sm" onClick={doUpdate}>
+                    <Download size={12} /> 下载更新
+                  </button>
+                ) : null}
+                {updateStatus === 'ready' ? (
+                  <button className="btn btn-primary btn-sm" onClick={() => window.location.reload()}>
+                    重启应用
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="about-row">
+              <span>GitHub</span>
+              <a href="#" onClick={(e) => { e.preventDefault(); invoke('open_url', { url: 'https://github.com/AntonStar1A1/sticky-notes' }) }}>
+                <ExternalLink size={12} /> 项目主页
+              </a>
+            </div>
             <div className="settings-note">
               数据仅保存在本机。升级前建议先导出备份(工具栏导出全部);回收站中的便签保留 30 天后自动清理。
             </div>
