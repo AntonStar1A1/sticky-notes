@@ -261,9 +261,8 @@ body,
   color: var(--fg);
 }
 
-/* 分类拖拽排序:拖入目标高亮下边框 */
+/* 分类拖拽排序:拖入目标高亮(落点位置由 .drag-indicator 指示条表达) */
 .category-item.drag-over {
-  box-shadow: inset 0 -2px 0 var(--accent);
   background: var(--bg-active);
 }
 
@@ -538,6 +537,33 @@ body,
 
 .note-card.dragging {
   opacity: 0.5;
+}
+
+.note-card.drag-over {
+  border-color: var(--accent);
+  background: var(--bg-active);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 拖拽源项描边 */
+.category-item[aria-grabbed="true"],
+.note-card[aria-grabbed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* 指针拖拽排序(替代 HTML5 DnD,原因见 useDragContext 注释):
+   拖拽过程中全局禁用文本选择、显示抓取光标(body 上由 JS 切换该类) */
+body.drag-sorting,
+body.drag-sorting * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* 触控拖拽:阻止浏览器滚动接管手势(仅自定义排序模式下卡片可拖) */
+.category-bar .category-item,
+.note-list.drag-enabled .note-card {
+  touch-action: none;
 }
 
 .note-card-colorbar {

@@ -393,13 +393,16 @@ pub fn rename_category(conn: &Connection, id: i64, name: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn reorder_categories(conn: &Connection, ids: &[i64]) -> Result<()> {
+pub fn reorder_categories(conn: &mut Connection, ids: &[i64]) -> Result<()> {
+    // 单事务:中途失败不留下部分重排
+    let tx = conn.unchecked_transaction()?;
     for (i, id) in ids.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "UPDATE categories SET sort_order = ?1 WHERE id = ?2 AND is_system = 0",
             params![i as i64, id],
         )?;
     }
+    tx.commit()?;
     Ok(())
 }
 
@@ -553,18 +556,20 @@ pub fn get_expired_trash_ids(conn: &Connection, days: i64) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-/// 自定义排序:ids 按序编号,其余 active 便签续编(避免 sort_order 冲突)
-pub fn reorder_notes(conn: &Connection, ids: &[i64]) -> Result<()> {
+/// 自定义排序:ids 按序编号,其余 active 便签续编(避免 sort_order 冲突)。
+/// 单事务:中途失败不留下部分重排;返回所有被重新编号的便签 id(供同步脏标记)。
+pub fn reorder_notes(conn: &mut Connection, ids: &[i64]) -> Result<Vec<i64>> {
+    let tx = conn.unchecked_transaction()?;
     let mut order = 0i64;
     for id in ids {
-        conn.execute(
+        tx.execute(
             "UPDATE notes SET sort_order = ?1 WHERE id = ?2",
             params![order, id],
         )?;
         order += 1;
     }
     let rest: Vec<i64> = if ids.is_empty() {
-        let mut stmt = conn.prepare("SELECT id FROM notes WHERE status = 'active' ORDER BY sort_order, id")?;
+        let mut stmt = tx.prepare("SELECT id FROM notes WHERE status = 'active' ORDER BY sort_order, id")?;
         let rows = stmt.query_map([], |r| r.get(0))?;
         rows.collect::<Result<Vec<_>>>()?
     } else {
@@ -573,18 +578,21 @@ pub fn reorder_notes(conn: &Connection, ids: &[i64]) -> Result<()> {
             "SELECT id FROM notes WHERE status = 'active' AND id NOT IN ({}) ORDER BY sort_order, id",
             placeholders
         );
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = tx.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |r| r.get(0))?;
         rows.collect::<Result<Vec<_>>>()?
     };
-    for id in rest {
-        conn.execute(
+    for id in &rest {
+        tx.execute(
             "UPDATE notes SET sort_order = ?1 WHERE id = ?2",
             params![order, id],
         )?;
         order += 1;
     }
-    Ok(())
+    tx.commit()?;
+    let mut affected: Vec<i64> = ids.to_vec();
+    affected.extend(rest);
+    Ok(affected)
 }
 
 pub fn duplicate_note(conn: &Connection, id: i64) -> Result<Note> {
@@ -935,7 +943,7 @@ mod tests {
 
     #[test]
     fn duplicate_reorder_color_style() {
-        let conn = setup();
+        let mut conn = setup();
         let a = add_note(&conn, &sample_note()).unwrap();
         let dup = duplicate_note(&conn, a.id).unwrap();
         assert_eq!(dup.title, "测试便签 (副本)");
@@ -943,7 +951,7 @@ mod tests {
         assert_ne!(dup.uuid, a.uuid);
         assert!(dup.sort_order > a.sort_order);
 
-        reorder_notes(&conn, &[dup.id, a.id]).unwrap();
+        reorder_notes(&mut conn, &[dup.id, a.id]).unwrap();
         let all = get_all_notes(&conn).unwrap();
         let mut ordered = all.clone();
         ordered.sort_by_key(|n| n.sort_order);
@@ -970,7 +978,7 @@ mod tests {
 
     #[test]
     fn category_rename_reorder_and_system_protection() {
-        let conn = setup();
+        let mut conn = setup();
         let c = add_category(&conn, "测试分类").unwrap();
         rename_category(&conn, c.id, "重命名").unwrap();
         let cats = get_all_categories(&conn).unwrap();
@@ -987,7 +995,7 @@ mod tests {
         let user_ids: Vec<i64> = cats.iter().filter(|x| !x.is_system).map(|x| x.id).collect();
         let mut reversed = user_ids.clone();
         reversed.reverse();
-        reorder_categories(&conn, &reversed).unwrap();
+        reorder_categories(&mut conn, &reversed).unwrap();
         let after = get_all_categories(&conn).unwrap();
         let after_user: Vec<i64> = after.iter().filter(|x| !x.is_system).map(|x| x.id).collect();
         assert_eq!(after_user, reversed);

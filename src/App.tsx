@@ -14,6 +14,7 @@ import SettingsPanel, { isEdgeDockEnabled } from './components/SettingsPanel'
 import PinToggleIcon from './components/PinToggleIcon'
 import { isManagerPinned, setManagerPinned, MANAGER_PIN_EVENT } from './managerPin'
 import { useEdgeDock } from './hooks/useEdgeDock'
+import { DragProvider, useDragContext, useReorderDrag } from './hooks/useDragContext'
 import { ToastHost, showToast } from './components/Toast'
 import { ConfirmDialogHost, confirmDialog } from './components/ConfirmDialog'
 import { loadTheme, saveTheme, THEME_PRESETS } from './theme'
@@ -22,6 +23,7 @@ import ColorPicker from './components/ColorPicker'
 import TodoView from './components/TodoView'
 import TrashView from './components/TrashView'
 import TimelineView from './components/TimelineView'
+import { DragIndicator } from './components/DragIndicator'
 
 loadTheme()
 
@@ -34,7 +36,15 @@ const SORT_OPTIONS: { key: SortMode; label: string }[] = [
   { key: 'custom', label: '自定义(拖拽)' },
 ]
 
-function App() {
+export default function App() {
+  return (
+    <DragProvider>
+      <AppInner />
+    </DragProvider>
+  )
+}
+
+function AppInner() {
   const [notes, setNotes] = useState<Note[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [todos, setTodos] = useState<Record<number, TodoItem[]>>({})
@@ -52,8 +62,6 @@ function App() {
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [isAddingCategory, setIsAddingCategory] = useState(false)
-  const [draggingCategoryId, setDraggingCategoryId] = useState<number | null>(null)
-  const [dragOverCategoryId, setDragOverCategoryId] = useState<number | null>(null)
   const [renamingCategoryId, setRenamingCategoryId] = useState<number | null>(null)
   const [renamingName, setRenamingName] = useState('')
   const [colorPicker, setColorPicker] = useState<{ x: number; y: number; noteId: number } | null>(null)
@@ -61,8 +69,16 @@ function App() {
   const [edgeDockEnabled, setEdgeDockEnabled] = useState(isEdgeDockEnabled())
   const [managerPinned, setManagerPinnedState] = useState(isManagerPinned())
   const [dragOverWindow, setDragOverWindow] = useState(false)
-  const [dragId, setDragId] = useState<number | null>(null)
-  const [customOrder, setCustomOrder] = useState<number[] | null>(null)
+
+  const { isDragging } = useDragContext()
+  // 内部排序拖拽标记(供窗口级外部拖放监听同步读取,避免依赖 dataTransfer.types 探测)
+  const isDraggingRef = useRef(false)
+  useEffect(() => {
+    isDraggingRef.current = isDragging
+  }, [isDragging])
+  const categoryBarRef = useRef<HTMLDivElement>(null)
+  const noteListRef = useRef<HTMLDivElement>(null)
+
   // 标题栏主题切换(spec 8.6):按预设顺序循环
   const cycleTheme = useCallback(() => {
     const { name, customColor } = loadTheme()
@@ -232,6 +248,7 @@ function App() {
     const openCreated = (note: Note) => {
       invoke('open_note', { id: note.id }).catch((e) => console.error('打开便签窗口失败:', e))
     }
+    let disposed = false
     let unlistenDnd: (() => void) | undefined
     listen<{ paths: string[] | null }>('tauri://drag-drop', (event) => {
       const paths = event.payload.paths ?? []
@@ -245,12 +262,16 @@ function App() {
           .catch((e) => showError(`拖拽创建失败: ${e}`))
       }
     }).then((fn) => {
-      unlistenDnd = fn
+      // 清理先于注册完成时(如 StrictMode 双挂载)立即反注册,避免重复监听
+      if (disposed) fn()
+      else unlistenDnd = fn
     })
 
     const onDragOver = (e: DragEvent) => {
       // 内部分类/卡片排序拖拽不触发「松开创建便签」提示
-      if (internalDragRef.current) return
+      if (isDraggingRef.current) return
+      const types = Array.from(e.dataTransfer?.types ?? [])
+      if (types.some(t => t.startsWith('application/x-sticky-'))) return
       e.preventDefault()
       setDragOverWindow(true)
     }
@@ -259,7 +280,9 @@ function App() {
     }
     const onDrop = (e: DragEvent) => {
       // 内部拖拽(分类排序/卡片排序)不创建便签
-      if (internalDragRef.current) return
+      if (isDraggingRef.current) return
+      const types = Array.from(e.dataTransfer?.types ?? [])
+      if (types.some(t => t.startsWith('application/x-sticky-'))) return
       e.preventDefault()
       setDragOverWindow(false)
       const text = e.dataTransfer?.getData('text/uri-list') || e.dataTransfer?.getData('text/plain')
@@ -285,8 +308,6 @@ function App() {
   }, [showError])
 
   const activeCatRef = useRef<number | null>(null)
-  // 内部拖拽(分类排序/卡片排序)标记,window 级 drop/dragover 据此跳过文本建便签
-  const internalDragRef = useRef(false)
   useEffect(() => {
     activeCatRef.current = activeCategoryId
   }, [activeCategoryId])
@@ -367,17 +388,36 @@ function App() {
     setActiveCategoryId(id)
   }, [privacyCat, privacyStatus, privacyUnlocked, activeCategoryId, lockPrivacy])
 
-  // 分类拖拽排序(spec 7.14):本地重排 + 一次性持久化;隐私系统分类固定末尾不参与
-  const reorderCategory = useCallback((sourceId: number, targetId: number) => {
-    const source = categories.find((c) => c.id === sourceId)
-    if (!source || source.is_system) return
-    const list = categories.filter((c) => c.id !== sourceId)
-    const targetIndex = list.findIndex((c) => c.id === targetId)
-    if (targetIndex < 0) return
-    list.splice(targetIndex, 0, source)
-    setCategories(list)
-    invoke('reorder_categories', { ids: list.map((c) => c.id) }).catch((e) => showError(`分类排序失败: ${e}`))
-  }, [categories, showError])
+  // 分类拖拽排序(spec 7.14):按可见落点重排 + 一次性持久化;隐私系统分类固定末尾不参与
+  // insertIndex 为相对可见分类的插入索引(useReorderDrag 已排除原位落下)
+  const commitCategoryOrder = useCallback((insertIndex: number, sourceId: number) => {
+    const src = categories.find((c) => c.id === sourceId)
+    if (!src || src.is_system) return
+    const systemCats = categories.filter((c) => c.is_system)
+    const movable = categories.filter((c) => !c.is_system && c.id !== sourceId)
+    // insertIndex 相对完整可见列表(含源项);用落点锚定项在「移除源项后的 movable」
+    // 中的位置换算,向下拖时源项移除引起的左移被自动抵消(与 commitNoteOrder 同思路)
+    const anchor = categories[insertIndex]
+    let insertAt = anchor ? movable.findIndex((c) => c.id === anchor.id) : movable.length
+    if (insertAt < 0) insertAt = movable.length // 锚定项是系统分类(固定末尾)→ 插到它前面
+    movable.splice(insertAt, 0, src)
+    setCategories([...movable, ...systemCats])
+    invoke('reorder_categories', { ids: movable.map((c) => c.id) }).catch((e) => {
+      showError(`分类排序失败: ${e}`)
+      loadAll()
+    })
+  }, [categories, showError, loadAll])
+
+  const categoryDrag = useReorderDrag({
+    enabled: true,
+    kind: 'category',
+    containerRef: categoryBarRef,
+    isMovable: (id) => {
+      const c = categories.find((x) => x.id === id)
+      return c !== undefined && !c.is_system
+    },
+    onDropAt: commitCategoryOrder,
+  })
 
   const onPrivacyUnlocked = useCallback(() => {
     setPrivacyUnlocked(true)
@@ -593,12 +633,6 @@ function App() {
       : byCategory
     return [...bySearch].sort((a, b) => {
       if (sortMode === 'custom') {
-        // 拖拽中按本地顺序,否则按 sort_order
-        if (customOrder) {
-          const ia = customOrder.indexOf(a.id)
-          const ib = customOrder.indexOf(b.id)
-          if (ia >= 0 && ib >= 0) return ia - ib
-        }
         return a.sort_order - b.sort_order
       }
       if (sortMode === 'title') return a.title.localeCompare(b.title, 'zh-CN')
@@ -606,43 +640,44 @@ function App() {
       if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1
       return b.updated_at.localeCompare(a.updated_at)
     })
-  }, [activeNotes, activeCategoryId, search, sortMode, customOrder])
+  }, [activeNotes, activeCategoryId, search, sortMode])
 
-  // 自定义排序拖拽:拖动中只做本地重排,松开时一次性落库
-  const onCardDragStart = useCallback((e: React.DragEvent, id: number) => {
-    if (sortMode !== 'custom') return
-    e.dataTransfer.effectAllowed = 'move'
-    internalDragRef.current = true
-    setDragId(id)
-    setCustomOrder(filteredNotes.map((n) => n.id))
-  }, [sortMode, filteredNotes])
+  // 自定义排序:全量 active id 落库,过滤/搜索视图下隐藏便签的相对顺序不受影响
+  const customOrderedNotes = useMemo(
+    () => [...activeNotes].sort((a, b) => a.sort_order - b.sort_order),
+    [activeNotes],
+  )
 
-  const onCardDragOver = useCallback((e: React.DragEvent, overId: number) => {
-    if (sortMode !== 'custom' || dragId === null || dragId === overId) return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    setCustomOrder((prev) => {
-      const order = prev ?? filteredNotes.map((n) => n.id)
-      const from = order.indexOf(dragId)
-      const to = order.indexOf(overId)
-      if (from < 0 || to < 0) return prev
-      const next = [...order]
-      const [moved] = next.splice(from, 1)
-      next.splice(to, 0, moved)
-      return next
-    })
-  }, [sortMode, dragId, filteredNotes])
-
-  const onCardDrop = useCallback(() => setDragId(null), [])
-
-  const onCardDragEnd = useCallback(() => {
-    if (customOrder) {
-      invoke('reorder_notes', { ids: customOrder }).catch((e) => showError(`排序保存失败: ${e}`))
+  const commitNoteOrder = useCallback((insertIndex: number, sourceId: number) => {
+    const filteredIds = filteredNotes.map((n) => n.id)
+    const arr = customOrderedNotes.map((n) => n.id).filter((id) => id !== sourceId)
+    let insertAt: number
+    if (insertIndex < filteredIds.length) {
+      // 落在可见项上:插入到该项在全局顺序中的位置之前
+      insertAt = arr.indexOf(filteredIds[insertIndex])
+    } else {
+      // 落在列表末尾:插入到最后一个可见项之后
+      const last = filteredIds[filteredIds.length - 1]
+      insertAt = arr.indexOf(last) + 1
     }
-    internalDragRef.current = false
-    setDragId(null)
-    setCustomOrder(null)
-  }, [customOrder, showError])
+    if (insertAt < 0) return
+    arr.splice(insertAt, 0, sourceId)
+    // 乐观更新:先本地重排,保存失败再回读
+    const rank = new Map(arr.map((id, i) => [id, i] as const))
+    setNotes((prev) => prev.map((n) => (rank.has(n.id) ? { ...n, sort_order: rank.get(n.id)! } : n)))
+    invoke('reorder_notes', { ids: arr }).catch((err) => {
+      showError(`排序保存失败: ${err}`)
+      loadAll()
+    })
+  }, [filteredNotes, customOrderedNotes, showError, loadAll])
+
+  const noteDrag = useReorderDrag({
+    enabled: sortMode === 'custom',
+    kind: 'note',
+    containerRef: noteListRef,
+    isMovable: () => true,
+    onDropAt: commitNoteOrder,
+  })
 
   const openNoteTitles = useMemo(() => {
     const map = new Map<number, string>()
@@ -716,7 +751,7 @@ function App() {
       <div className="main-content">
         {view === 'notes' && (
           <>
-            <div className="category-bar">
+            <div className="category-bar" ref={categoryBarRef}>
               <div
                 className={`category-item ${activeCategoryId === null ? 'active' : ''}`}
                 onClick={() => selectCategory(null)}
@@ -730,6 +765,8 @@ function App() {
               {categories.map((cat) => {
                 const isPrivacy = privacyCat?.id === cat.id
                 const locked = isPrivacy && privacyStatus.has_password && !privacyUnlocked
+                const indicator = categoryDrag.indicatorFor(cat.id)
+                const isDragTarget = indicator !== null && !isPrivacy
                 return renamingCategoryId === cat.id ? (
                   <div key={cat.id} className="add-category-form">
                     <input
@@ -747,50 +784,23 @@ function App() {
                 ) : (
                   <div
                     key={cat.id}
-                    className={`category-item ${activeCategoryId === cat.id ? 'active' : ''} ${dragOverCategoryId === cat.id ? 'drag-over' : ''}`}
+                    {...categoryDrag.itemProps(cat.id)}
+                    className={`category-item ${activeCategoryId === cat.id ? 'active' : ''} ${isDragTarget ? 'drag-over' : ''}`}
                     onClick={() => selectCategory(cat.id)}
                     onContextMenu={(e) => {
                       e.stopPropagation()
                       handleContextMenu(e, null, cat.id)
                     }}
                     title={cat.name}
-                    draggable={!isPrivacy}
                     onDoubleClick={() => {
-                      // spec 7.10:双击分类名重命名(隐私系统分类除外)
                       if (isPrivacy) return
                       setRenamingName(cat.name)
                       setRenamingCategoryId(cat.id)
                     }}
-                    onDragStart={(e) => {
-                      if (isPrivacy) return
-                      internalDragRef.current = true
-                      e.dataTransfer.setData('text/plain', String(cat.id))
-                      setDraggingCategoryId(cat.id)
-                    }}
-                    onDragOver={(e) => {
-                      if (isPrivacy || draggingCategoryId === null) return
-                      e.preventDefault()
-                      setDragOverCategoryId(cat.id)
-                    }}
-                    onDragLeave={() => setDragOverCategoryId((prev) => (prev === cat.id ? null : prev))}
-                    onDrop={(e) => {
-                      e.stopPropagation()
-                      e.preventDefault()
-                      internalDragRef.current = false
-                      const sourceId = draggingCategoryId
-                      setDragOverCategoryId(null)
-                      setDraggingCategoryId(null)
-                      if (sourceId === null || sourceId === cat.id || isPrivacy) return
-                      reorderCategory(sourceId, cat.id)
-                    }}
-                    onDragEnd={() => {
-                      internalDragRef.current = false
-                      setDraggingCategoryId(null)
-                      setDragOverCategoryId(null)
-                    }}
+                    role="listitem"
                   >
+                    <DragIndicator position={indicator?.position ?? 'top'} visible={isDragTarget} />
                     <span className="category-name">
-                      {/* spec 7.14:用户分类 Folder,隐私系统分类 Lock */}
                       {isPrivacy ? (
                         locked ? <Lock size={10} /> : <LockOpen size={10} />
                       ) : (
@@ -944,91 +954,92 @@ function App() {
                   </button>
                 </div>
               ) : (
-                <div className="note-list">
+                <div className={`note-list ${sortMode === 'custom' ? 'drag-enabled' : ''}`} ref={noteListRef}>
                   {filteredNotes.length === 0 ? (
                     <div className="list-empty">{search.trim() ? '暂无结果' : '暂无便签'}</div>
                   ) : (
-                    filteredNotes.map((note, i) => (
-                      <Fragment key={note.id}>
-                      {i > 0 && filteredNotes[i - 1].is_pinned && !note.is_pinned && (
-                        <div className="pinned-sep" />
-                      )}
-                      <div
-                        className={`note-card ${note.is_pinned ? 'pinned' : ''} ${dragId === note.id ? 'dragging' : ''}`}
-                        style={{ ['--note-color' as string]: note.color }}
-                        draggable={sortMode === 'custom'}
-                        onDragStart={(e) => onCardDragStart(e, note.id)}
-                        onDragOver={(e) => onCardDragOver(e, note.id)}
-                        onDrop={onCardDrop}
-                        onDragEnd={onCardDragEnd}
-                        onClick={() => openNoteInWindow(note.id)}
-                        onContextMenu={(e) => {
-                          e.stopPropagation()
-                          handleContextMenu(e, note.id)
-                        }}
-                      >
-                        <div className="note-card-colorbar" />
-                        <div className="note-card-header">
-                          <span className="note-card-icon">
-                            {note.note_type === 'todo' ? <ListTodo size={12} /> : <StickyNote size={12} />}
-                          </span>
-                          <span className="note-card-title">{note.title ? highlightKw(note.title, search.trim()) : '（未命名）'}</span>
-                          {note.is_pinned && <Pin size={10} className="note-card-pin" />}
-                        </div>
-                        <div className="note-card-summary">
-                          {highlightKw(summaryOf(note), search.trim())}
-                        </div>
-                        <div className="note-card-footer">
-                          <span className="note-card-time">{formatTime(note.updated_at)}</span>
-                          {(() => {
-                            // spec 7.14:时间行显示分类标签(品牌色胶囊)
-                            const c = categories.find((x) => x.id === note.category_id)
-                            return c ? <span className="note-card-cat">{c.name}</span> : null
-                          })()}
-                          <div className="note-card-actions">
-                            <button
-                              className="icon-btn"
-                              title="在窗口中打开"
-                              onClick={(e) => { e.stopPropagation(); openNoteInWindow(note.id) }}
-                            >
-                              <ExternalLink size={11} />
-                            </button>
-                            <button
-                              className="icon-btn"
-                              title={note.is_pinned ? '取消置顶' : '置顶'}
-                              onClick={(e) => { e.stopPropagation(); togglePin(note) }}
-                            >
-                              {note.is_pinned ? <PinOff size={11} /> : <Pin size={11} />}
-                            </button>
-                            <button
-                              className="icon-btn"
-                              title="颜色"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setColorPicker({ x: e.clientX, y: e.clientY, noteId: note.id })
-                              }}
-                            >
-                              <Palette size={11} />
-                            </button>
-                            <button
-                              className="icon-btn"
-                              title="创建副本"
-                              onClick={(e) => { e.stopPropagation(); duplicate(note.id) }}
-                            >
-                              <Copy size={11} />
-                            </button>
-                            <button
-                              className="icon-btn danger"
-                              title="删除(移入回收站)"
-                              onClick={(e) => { e.stopPropagation(); deleteNote(note.id) }}
-                            >
-                              <Trash2 size={11} />
-                            </button>
+                    filteredNotes.map((note, i) => {
+                      const isDragSource = noteDrag.isSource(note.id)
+                      const indicator = noteDrag.indicatorFor(note.id)
+                      return (
+                        <Fragment key={note.id}>
+                        {i > 0 && filteredNotes[i - 1].is_pinned && !note.is_pinned && (
+                          <div className="pinned-sep" />
+                        )}
+                        <div
+                          {...noteDrag.itemProps(note.id)}
+                          className={`note-card ${note.is_pinned ? 'pinned' : ''} ${isDragSource ? 'dragging' : ''} ${indicator ? 'drag-over' : ''}`}
+                          style={{ ['--note-color' as string]: note.color }}
+                          onClick={() => openNoteInWindow(note.id)}
+                          onContextMenu={(e) => {
+                            e.stopPropagation()
+                            handleContextMenu(e, note.id)
+                          }}
+                          role="listitem"
+                        >
+                          <DragIndicator position={indicator?.position ?? 'top'} visible={indicator !== null} />
+                          <div className="note-card-colorbar" />
+                          <div className="note-card-header">
+                            <span className="note-card-icon">
+                              {note.note_type === 'todo' ? <ListTodo size={12} /> : <StickyNote size={12} />}
+                            </span>
+                            <span className="note-card-title">{note.title ? highlightKw(note.title, search.trim()) : '（未命名）'}</span>
+                            {note.is_pinned && <Pin size={10} className="note-card-pin" />}
+                          </div>
+                          <div className="note-card-summary">
+                            {highlightKw(summaryOf(note), search.trim())}
+                          </div>
+                          <div className="note-card-footer">
+                            <span className="note-card-time">{formatTime(note.updated_at)}</span>
+                            {(() => {
+                              const c = categories.find((x) => x.id === note.category_id)
+                              return c ? <span className="note-card-cat">{c.name}</span> : null
+                            })()}
+                            <div className="note-card-actions">
+                              <button
+                                className="icon-btn"
+                                title="在窗口中打开"
+                                onClick={(e) => { e.stopPropagation(); openNoteInWindow(note.id) }}
+                              >
+                                <ExternalLink size={11} />
+                              </button>
+                              <button
+                                className="icon-btn"
+                                title={note.is_pinned ? '取消置顶' : '置顶'}
+                                onClick={(e) => { e.stopPropagation(); togglePin(note) }}
+                              >
+                                {note.is_pinned ? <PinOff size={11} /> : <Pin size={11} />}
+                              </button>
+                              <button
+                                className="icon-btn"
+                                title="颜色"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setColorPicker({ x: e.clientX, y: e.clientY, noteId: note.id })
+                                }}
+                              >
+                                <Palette size={11} />
+                              </button>
+                              <button
+                                className="icon-btn"
+                                title="创建副本"
+                                onClick={(e) => { e.stopPropagation(); duplicate(note.id) }}
+                              >
+                                <Copy size={11} />
+                              </button>
+                              <button
+                                className="icon-btn danger"
+                                title="删除(移入回收站)"
+                                onClick={(e) => { e.stopPropagation(); deleteNote(note.id) }}
+                              >
+                                <Trash2 size={11} />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      </Fragment>
-                    ))
+                        </Fragment>
+                      )
+                    })
                   )}
                 </div>
               )}
@@ -1206,5 +1217,3 @@ function App() {
     </div>
   )
 }
-
-export default App

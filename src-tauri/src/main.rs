@@ -284,9 +284,16 @@ fn rename_category(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64
 
 #[tauri::command]
 fn reorder_categories(app: tauri::AppHandle, state: tauri::State<AppState>, ids: Vec<i64>) -> Result<(), String> {
-    let conn = state.db.0.lock().unwrap();
-    db::reorder_categories(&conn, &ids).map_err(|e| e.to_string())?;
+    let mut conn = state.db.0.lock().unwrap();
+    db::reorder_categories(&mut conn, &ids).map_err(|e| e.to_string())?;
+    // 排序也是数据变更:逐行标脏并入队(与其他写命令保持一致,云端同步 last-write-wins)
+    for id in &ids {
+        mark_unsynced(&conn, "categories", *id);
+    }
     drop(conn);
+    for id in &ids {
+        queue_change(&app, "category", *id, "update");
+    }
     let _ = app.emit("notes-updated", ());
     Ok(())
 }
@@ -707,9 +714,16 @@ fn duplicate_note(app: tauri::AppHandle, state: tauri::State<AppState>, id: i64)
 
 #[tauri::command]
 fn reorder_notes(app: tauri::AppHandle, state: tauri::State<AppState>, ids: Vec<i64>) -> Result<(), String> {
-    let conn = state.db.0.lock().unwrap();
-    db::reorder_notes(&conn, &ids).map_err(|e| e.to_string())?;
+    let mut conn = state.db.0.lock().unwrap();
+    let affected = db::reorder_notes(&mut conn, &ids).map_err(|e| e.to_string())?;
+    // 排序也是数据变更:所有被重新编号的便签逐行标脏并入队
+    for id in &affected {
+        mark_unsynced(&conn, "notes", *id);
+    }
     drop(conn);
+    for id in &affected {
+        queue_change(&app, "note", *id, "update");
+    }
     let _ = app.emit("notes-updated", ());
     Ok(())
 }
