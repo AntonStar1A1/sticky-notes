@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
-import { Wrench, ShieldCheck, Palette, Keyboard, Info, X, Check, RefreshCw, Download, ExternalLink } from 'lucide-react'
+import { Wrench, ShieldCheck, Palette, Keyboard, Info, ChevronLeft, Check, RefreshCw, Download, ExternalLink } from 'lucide-react'
 import { check } from '@tauri-apps/plugin-updater'
 import type { PrivacyStatus, ShortcutInfo } from '../types'
 import { THEME_PRESETS, saveTheme, type ThemeName } from '../theme'
@@ -167,10 +167,12 @@ export default function SettingsPanel({ onClose }: Props) {
   return (
     <div className="settings-panel">
       <div className="settings-header">
-        <span className="settings-title">设置</span>
-        <button className="icon-btn" onClick={onClose} title="关闭">
-          <X size={14} />
-        </button>
+        <div className="view-toolbar-left">
+          <button className="back-btn" onClick={onClose} title="返回便签列表">
+            <ChevronLeft size={12} /> 返回
+          </button>
+          <span className="settings-title">设置</span>
+        </div>
       </div>
 
       <div className="settings-tabs">

@@ -1068,7 +1068,7 @@ function AppInner() {
           <TodoView notes={notes} todos={Object.values(todos).flat()} privacyCategoryId={privacyCat?.id ?? null} search={search} onOpenNote={openNoteInWindow} onError={showError} />
         )}
         {view === 'trash' && (
-          <TrashView notes={notes} onError={showError} onRefresh={loadAll} />
+          <TrashView notes={notes} onError={showError} onRefresh={loadAll} onBack={() => setView('notes')} />
         )}
         {view === 'timeline' && (
           <TimelineView entries={timeline} onOpenNote={openNoteInWindow} onBack={() => setView('notes')} />

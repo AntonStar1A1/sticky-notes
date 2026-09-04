@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { Trash2, RotateCcw, XCircle, Sparkles, Info } from 'lucide-react'
+import { Trash2, RotateCcw, XCircle, Sparkles, Info, ChevronLeft } from 'lucide-react'
 import type { Note } from '../types'
 import { showToast } from './Toast'
 import { confirmDialog } from './ConfirmDialog'
@@ -9,6 +9,8 @@ interface Props {
   notes: Note[]
   onError: (msg: string) => void
   onRefresh: () => void
+  /** 返回便签列表视图 */
+  onBack: () => void
 }
 
 function relative(iso: string): string {
@@ -28,7 +30,7 @@ function relative(iso: string): string {
 }
 
 /** 回收站(spec 7.10):软删除的便签保留 30 天,可恢复/彻底删除 */
-export default function TrashView({ notes, onError, onRefresh }: Props) {
+export default function TrashView({ notes, onError, onRefresh, onBack }: Props) {
   const trashed = useMemo(
     () => notes.filter((n) => n.status === 'trashed').sort((a, b) => (b.trashed_at ?? '').localeCompare(a.trashed_at ?? '')),
     [notes],
@@ -88,7 +90,12 @@ export default function TrashView({ notes, onError, onRefresh }: Props) {
   return (
     <div className="trash-view">
       <div className="view-toolbar">
-        <span className="view-title">回收站</span>
+        <div className="view-toolbar-left">
+          <button className="back-btn" onClick={onBack} title="返回便签列表">
+            <ChevronLeft size={12} /> 返回
+          </button>
+          <span className="view-title">回收站</span>
+        </div>
         <span className="view-meta">{trashed.length} 条</span>
       </div>
       <div className="trash-hint">
