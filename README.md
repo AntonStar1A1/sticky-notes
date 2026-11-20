@@ -8,6 +8,7 @@
 - 分组管理 — 右键菜单将便签归入不同分组
 - 拖拽排序 — 分组与便签支持拖动重排（鼠标 / 触控长按）
 - 待办清单 — 便签内嵌待办项
+- 番茄钟 — 独立窗口的正计时 / 倒计时,「打点」记录每个节点的用时,按天归档历史
 - 附件 — 便签可添加图片等附件
 - 时间轴 — 查看便签历史修改记录，支持旧/新内容对比
 - 窗口置顶 — 标题栏一键 pin 便签到最前
@@ -112,8 +113,10 @@ Sticky_notes/
 │   ├── App.tsx             # 主窗口 (管理台)
 │   ├── NoteApp.tsx         # 便签窗口
 │   ├── CaptureApp.tsx      # 文字捕获窗口
+│   ├── PomodoroApp.tsx     # 番茄钟窗口(独立)
 │   ├── components/         # UI 组件
-│   ├── hooks/              # React Hooks
+│   ├── hooks/              # React Hooks(含 usePomodoro 计时引擎)
+│   ├── pomodoro/           # 番茄钟数据接口 / 格式化 / 偏好
 │   └── types.ts            # 类型定义
 ├── src-tauri/              # Rust 后端
 │   ├── src/main.rs         # Tauri 入口 & 命令注册

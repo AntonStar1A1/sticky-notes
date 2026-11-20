@@ -73,6 +73,69 @@ pub struct Attachment {
     pub created_at: String,
 }
 
+/// 番茄钟会话(mode: up 正计时 / down 倒计时;status: active 进行中 / done 已结束)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PomodoroSession {
+    pub id: i64,
+    pub uuid: String,
+    pub title: String,
+    pub mode: String,
+    pub target_ms: i64,
+    pub elapsed_ms: i64,
+    pub run_since_ms: Option<i64>,
+    pub status: String,
+    pub completed: bool,
+    pub lap_count: i64,
+    pub day: String,
+    pub started_at_ms: i64,
+    pub finished_at_ms: Option<i64>,
+}
+
+/// 番茄钟节点(一次「打点」):lap_ms 为距上一节点的用时,total_ms 为打点瞬间会话累计
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PomodoroLap {
+    pub id: i64,
+    pub session_id: i64,
+    pub idx: i64,
+    pub label: String,
+    pub lap_ms: i64,
+    pub total_ms: i64,
+    pub at_ms: i64,
+}
+
+/// 番茄钟统计(只统计已结束会话,日期口径与回收站清理一致:SQLite 本地日期)
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct PomodoroStats {
+    pub today_ms: i64,
+    pub today_sessions: i64,
+    pub today_completed: i64,
+    pub today_laps: i64,
+    pub week_ms: i64,
+    pub total_ms: i64,
+    pub total_sessions: i64,
+}
+
+const POMO_COLS: &str = "id, uuid, title, mode, target_ms, elapsed_ms, run_since_ms, status, \
+    completed, lap_count, day, started_at_ms, finished_at_ms";
+
+fn row_to_pomodoro(row: &rusqlite::Row) -> rusqlite::Result<PomodoroSession> {
+    Ok(PomodoroSession {
+        id: row.get(0)?,
+        uuid: row.get(1)?,
+        title: row.get(2)?,
+        mode: row.get(3)?,
+        target_ms: row.get(4)?,
+        elapsed_ms: row.get(5)?,
+        run_since_ms: row.get(6)?,
+        status: row.get(7)?,
+        completed: row.get(8)?,
+        lap_count: row.get(9)?,
+        day: row.get(10)?,
+        started_at_ms: row.get(11)?,
+        finished_at_ms: row.get(12)?,
+    })
+}
+
 const NOTE_COLS: &str = "id, uuid, title, content, note_type, category_id, x, y, width, height, \
     opacity, is_pinned, color, sort_order, window_style, status, deleted_by, trashed_at, \
     created_at, updated_at";
@@ -153,6 +216,43 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        -- 番茄钟:一次计时会话。elapsed_ms 只记「上一段」累计,run_since_ms 记当前运行段的起点,
+        -- 实际用时 = elapsed_ms + (now - run_since_ms);暂停时把累计写回 elapsed_ms 并清空 run_since_ms。
+        -- 这样即使窗口隐藏/进程重启,也能按墙上时钟续算,不需要周期性落库。
+        CREATE TABLE IF NOT EXISTS pomodoro_session (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT,
+            title TEXT NOT NULL DEFAULT '',
+            mode TEXT NOT NULL DEFAULT 'down',
+            target_ms INTEGER NOT NULL DEFAULT 0,
+            elapsed_ms INTEGER NOT NULL DEFAULT 0,
+            run_since_ms INTEGER,
+            status TEXT NOT NULL DEFAULT 'active',
+            completed INTEGER NOT NULL DEFAULT 0,
+            lap_count INTEGER NOT NULL DEFAULT 0,
+            day TEXT NOT NULL DEFAULT '',
+            started_at_ms INTEGER NOT NULL DEFAULT 0,
+            finished_at_ms INTEGER,
+            device_id TEXT,
+            synced INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_pomo_status ON pomodoro_session(status);
+        CREATE INDEX IF NOT EXISTS idx_pomo_day ON pomodoro_session(day);
+
+        -- 番茄钟节点:每打一次点记一条,lap_ms 为距上一节点的用时,total_ms 为打点瞬间的会话累计
+        CREATE TABLE IF NOT EXISTS pomodoro_lap (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            idx INTEGER NOT NULL DEFAULT 0,
+            label TEXT NOT NULL DEFAULT '',
+            lap_ms INTEGER NOT NULL DEFAULT 0,
+            total_ms INTEGER NOT NULL DEFAULT 0,
+            at_ms INTEGER NOT NULL DEFAULT 0,
+            created_at_ms INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (session_id) REFERENCES pomodoro_session(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_pomo_lap_session ON pomodoro_lap(session_id);
 
         -- v3 迁移后 name 无 UNIQUE(支持重命名撞名),INSERT OR IGNORE 不再去重,每次启动会重复播种;
         -- 改为按名称存在性判断:仅当同名分类不存在时才插入(init_db 每次启动都会执行)
@@ -789,6 +889,256 @@ pub fn delete_attachment(conn: &Connection, id: i64) -> Result<Option<Attachment
     Ok(existing)
 }
 
+// ============ 番茄钟 ============
+
+/// 当前进行中的会话(全局至多一条;重启/重开窗口时用它续算)
+pub fn pomodoro_active(conn: &Connection) -> Result<Option<PomodoroSession>> {
+    let sql = format!(
+        "SELECT {} FROM pomodoro_session WHERE status = 'active' ORDER BY id DESC LIMIT 1",
+        POMO_COLS
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query([])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row_to_pomodoro(row)?)),
+        None => Ok(None),
+    }
+}
+
+/// 单条会话(番茄钟窗口恢复状态时按 id 取;命令层暂用 active/history,保留给测试与后续同步)
+#[allow(dead_code)]
+pub fn pomodoro_get(conn: &Connection, id: i64) -> Result<Option<PomodoroSession>> {
+    let sql = format!("SELECT {} FROM pomodoro_session WHERE id = ?1", POMO_COLS);
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query(params![id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row_to_pomodoro(row)?)),
+        None => Ok(None),
+    }
+}
+
+/// 新建会话:开新的一次计时前先丢弃遗留的 active 会话(含其节点,外键级联)
+pub fn pomodoro_create(
+    conn: &Connection,
+    mode: &str,
+    target_ms: i64,
+    day: &str,
+    started_at_ms: i64,
+) -> Result<PomodoroSession> {
+    conn.execute("DELETE FROM pomodoro_session WHERE status = 'active'", [])?;
+    let uuid = new_uuid();
+    conn.execute(
+        "INSERT INTO pomodoro_session \
+            (uuid, title, mode, target_ms, elapsed_ms, run_since_ms, status, completed, lap_count, day, started_at_ms) \
+            VALUES (?1, '', ?2, ?3, 0, ?4, 'active', 0, 0, ?5, ?4)",
+        params![uuid, mode, target_ms, started_at_ms, day],
+    )?;
+    let id = conn.last_insert_rowid();
+    Ok(PomodoroSession {
+        id,
+        uuid,
+        title: String::new(),
+        mode: mode.to_string(),
+        target_ms,
+        elapsed_ms: 0,
+        run_since_ms: Some(started_at_ms),
+        status: "active".to_string(),
+        completed: false,
+        lap_count: 0,
+        day: day.to_string(),
+        started_at_ms,
+        finished_at_ms: None,
+    })
+}
+
+/// 暂停:累计写回 elapsed_ms,清空运行段起点
+pub fn pomodoro_pause(conn: &Connection, id: i64, accrued_ms: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE pomodoro_session SET elapsed_ms = ?1, run_since_ms = NULL WHERE id = ?2",
+        params![accrued_ms.max(0), id],
+    )?;
+    Ok(())
+}
+
+/// 继续:记下本运行段起点(由前端传入墙上时钟,避免与 Rust 侧时钟漂移)
+pub fn pomodoro_resume(conn: &Connection, id: i64, run_since_ms: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE pomodoro_session SET run_since_ms = ?1 WHERE id = ?2",
+        params![run_since_ms, id],
+    )?;
+    Ok(())
+}
+
+pub fn pomodoro_finish(
+    conn: &Connection,
+    id: i64,
+    elapsed_ms: i64,
+    completed: bool,
+    finished_at_ms: i64,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE pomodoro_session SET status = 'done', elapsed_ms = ?1, run_since_ms = NULL, \
+            completed = ?2, finished_at_ms = ?3 WHERE id = ?4",
+        params![elapsed_ms.max(0), completed, finished_at_ms, id],
+    )?;
+    Ok(())
+}
+
+/// 丢弃会话(空会话结束、重置):外键 ON DELETE CASCADE 一并清节点
+pub fn pomodoro_discard(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM pomodoro_session WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn pomodoro_laps(conn: &Connection, session_id: i64) -> Result<Vec<PomodoroLap>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, session_id, idx, label, lap_ms, total_ms, at_ms FROM pomodoro_lap \
+            WHERE session_id = ?1 ORDER BY idx",
+    )?;
+    let laps = stmt
+        .query_map(params![session_id], |row| {
+            Ok(PomodoroLap {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                idx: row.get(2)?,
+                label: row.get(3)?,
+                lap_ms: row.get(4)?,
+                total_ms: row.get(5)?,
+                at_ms: row.get(6)?,
+            })
+        })?
+        .collect::<Result<Vec<_>>>()?;
+    Ok(laps)
+}
+
+pub fn pomodoro_add_lap(
+    conn: &Connection,
+    session_id: i64,
+    label: &str,
+    lap_ms: i64,
+    total_ms: i64,
+    at_ms: i64,
+) -> Result<PomodoroLap> {
+    let mut stmt = conn.prepare("SELECT COALESCE(MAX(idx), 0) FROM pomodoro_lap WHERE session_id = ?1")?;
+    let max_idx: i64 = stmt.query_row(params![session_id], |row| row.get(0)).unwrap_or(0);
+    let idx = max_idx + 1;
+    conn.execute(
+        "INSERT INTO pomodoro_lap (session_id, idx, label, lap_ms, total_ms, at_ms, created_at_ms) \
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![session_id, idx, label, lap_ms.max(0), total_ms.max(0), at_ms],
+    )?;
+    let id = conn.last_insert_rowid();
+    conn.execute(
+        "UPDATE pomodoro_session SET lap_count = (SELECT COUNT(*) FROM pomodoro_lap WHERE session_id = ?1) \
+            WHERE id = ?1",
+        params![session_id],
+    )?;
+    Ok(PomodoroLap {
+        id,
+        session_id,
+        idx,
+        label: label.to_string(),
+        lap_ms: lap_ms.max(0),
+        total_ms: total_ms.max(0),
+        at_ms,
+    })
+}
+
+pub fn pomodoro_rename_lap(conn: &Connection, id: i64, label: &str) -> Result<()> {
+    conn.execute("UPDATE pomodoro_lap SET label = ?1 WHERE id = ?2", params![label, id])?;
+    Ok(())
+}
+
+pub fn pomodoro_delete_lap(conn: &Connection, id: i64) -> Result<()> {
+    let session_id: Option<i64> = conn
+        .query_row("SELECT session_id FROM pomodoro_lap WHERE id = ?1", params![id], |row| row.get(0))
+        .ok();
+    conn.execute("DELETE FROM pomodoro_lap WHERE id = ?1", params![id])?;
+    if let Some(sid) = session_id {
+        // 删点后重排 idx,保证序号连续
+        let mut stmt = conn.prepare("SELECT id FROM pomodoro_lap WHERE session_id = ?1 ORDER BY idx")?;
+        let ids: Vec<i64> = stmt
+            .query_map(params![sid], |row| row.get(0))?
+            .collect::<Result<Vec<_>>>()?;
+        drop(stmt);
+        for (i, lap_id) in ids.iter().enumerate() {
+            conn.execute("UPDATE pomodoro_lap SET idx = ?1 WHERE id = ?2", params![i as i64 + 1, lap_id])?;
+        }
+        conn.execute(
+            "UPDATE pomodoro_session SET lap_count = (SELECT COUNT(*) FROM pomodoro_lap WHERE session_id = ?1) \
+                WHERE id = ?1",
+            params![sid],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn pomodoro_history(conn: &Connection, limit: i64) -> Result<Vec<PomodoroSession>> {
+    let sql = format!(
+        "SELECT {} FROM pomodoro_session WHERE status = 'done' \
+            ORDER BY started_at_ms DESC LIMIT ?1",
+        POMO_COLS
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let list = stmt
+        .query_map(params![limit.max(0)], |row| row_to_pomodoro(row))?
+        .collect::<Result<Vec<_>>>()?;
+    Ok(list)
+}
+
+pub fn pomodoro_delete_session(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM pomodoro_session WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn pomodoro_stats(conn: &Connection) -> Result<PomodoroStats> {
+    let today_ms: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(elapsed_ms), 0) FROM pomodoro_session WHERE status = 'done' \
+            AND date(started_at_ms / 1000, 'unixepoch', 'localtime') = date('now', 'localtime')",
+        [],
+        |row| row.get(0),
+    )?;
+    let today_sessions: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pomodoro_session WHERE status = 'done' \
+            AND date(started_at_ms / 1000, 'unixepoch', 'localtime') = date('now', 'localtime')",
+        [],
+        |row| row.get(0),
+    )?;
+    let today_completed: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pomodoro_session WHERE status = 'done' AND completed = 1 \
+            AND date(started_at_ms / 1000, 'unixepoch', 'localtime') = date('now', 'localtime')",
+        [],
+        |row| row.get(0),
+    )?;
+    let today_laps: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pomodoro_lap l JOIN pomodoro_session s ON s.id = l.session_id \
+            WHERE s.status = 'done' \
+            AND date(s.started_at_ms / 1000, 'unixepoch', 'localtime') = date('now', 'localtime')",
+        [],
+        |row| row.get(0),
+    )?;
+    let week_ms: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(elapsed_ms), 0) FROM pomodoro_session WHERE status = 'done' \
+            AND date(started_at_ms / 1000, 'unixepoch', 'localtime') >= date('now', 'localtime', '-6 days')",
+        [],
+        |row| row.get(0),
+    )?;
+    let (total_ms, total_sessions): (i64, i64) = conn.query_row(
+        "SELECT COALESCE(SUM(elapsed_ms), 0), COUNT(*) FROM pomodoro_session WHERE status = 'done'",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok(PomodoroStats {
+        today_ms,
+        today_sessions,
+        today_completed,
+        today_laps,
+        week_ms,
+        total_ms,
+        total_sessions,
+    })
+}
+
 // ============ tests ============
 
 #[cfg(test)]
@@ -1166,4 +1516,125 @@ mod tests {
         drop(conn);
         let _ = std::fs::remove_file(&target);
     }
+
+/// 番茄钟用例独立成模块:db.rs 末尾原本就有写在 `mod tests` 之外的真实库迁移用例,
+/// 这里自建 setup,避免依赖 `mod tests` 内的私有辅助函数。
+#[cfg(test)]
+mod pomodoro_tests {
+    use super::*;
+
+    fn setup() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        migrate(&conn).unwrap();
+        conn
+    }
+
+    #[test]
+    fn pomodoro_tables_exist_after_init() {
+        let conn = setup();
+        for table in ["pomodoro_session", "pomodoro_lap"] {
+            let n: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 1, "缺表 {}", table);
+        }
+        // 空库统计不得报错,且全为 0
+        let stats = pomodoro_stats(&conn).unwrap();
+        assert_eq!((stats.today_ms, stats.total_sessions, stats.today_laps), (0, 0, 0));
+    }
+
+    #[test]
+    fn pomodoro_lifecycle_records_laps_and_stats() {
+        let conn = setup();
+        let started = 1_700_000_000_000i64; // 固定墙上时钟,避免用例随真实时间漂移
+        let s = pomodoro_create(&conn, "down", 25 * 60_000, "2023-11-14", started).unwrap();
+        assert_eq!(s.status, "active");
+        assert_eq!(s.run_since_ms, Some(started));
+
+        // 运行中打两个点:lap_ms 为段内用时,total_ms 为累计
+        let l1 = pomodoro_add_lap(&conn, s.id, "节点 1", 300_000, 300_000, started + 300_000).unwrap();
+        let l2 = pomodoro_add_lap(&conn, s.id, "节点 2", 120_000, 420_000, started + 420_000).unwrap();
+        assert_eq!((l1.idx, l2.idx), (1, 2));
+
+        let laps = pomodoro_laps(&conn, s.id).unwrap();
+        assert_eq!(laps.len(), 2);
+        assert_eq!(laps[1].lap_ms, 120_000);
+        assert_eq!(laps[1].total_ms, 420_000);
+        assert_eq!(pomodoro_get(&conn, s.id).unwrap().unwrap().lap_count, 2);
+
+        // 暂停 → 继续 → 结束
+        pomodoro_pause(&conn, s.id, 420_000).unwrap();
+        let paused = pomodoro_get(&conn, s.id).unwrap().unwrap();
+        assert_eq!((paused.elapsed_ms, paused.run_since_ms), (420_000, None));
+        pomodoro_resume(&conn, s.id, started + 600_000).unwrap();
+        assert_eq!(pomodoro_get(&conn, s.id).unwrap().unwrap().run_since_ms, Some(started + 600_000));
+
+        pomodoro_finish(&conn, s.id, 1_500_000, true, started + 1_500_000).unwrap();
+        assert!(pomodoro_active(&conn).unwrap().is_none());
+        let history = pomodoro_history(&conn, 10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert!(history[0].completed);
+        assert_eq!(history[0].elapsed_ms, 1_500_000);
+        assert_eq!(history[0].finished_at_ms, Some(started + 1_500_000));
+
+        // 统计:今日口径用 SQLite 本地日期,结束时间固定在过去,故只看全量字段
+        let stats = pomodoro_stats(&conn).unwrap();
+        assert_eq!(stats.total_ms, 1_500_000);
+        assert_eq!(stats.total_sessions, 1);
+    }
+
+    #[test]
+    fn pomodoro_start_discards_previous_active_session_with_laps() {
+        let conn = setup();
+        let first = pomodoro_create(&conn, "up", 0, "2026-01-01", 1_000).unwrap();
+        pomodoro_add_lap(&conn, first.id, "节点 1", 1_000, 1_000, 2_000).unwrap();
+
+        let second = pomodoro_create(&conn, "down", 5 * 60_000, "2026-01-01", 5_000).unwrap();
+        assert_ne!(first.id, second.id);
+        let active = pomodoro_active(&conn).unwrap().unwrap();
+        assert_eq!(active.id, second.id);
+        // 旧会话被删除,其节点随外键级联清理
+        let old_laps: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pomodoro_lap WHERE session_id = ?1", params![first.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(old_laps, 0);
+        assert!(pomodoro_get(&conn, first.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn pomodoro_delete_lap_reindexes_and_updates_count() {
+        let conn = setup();
+        let s = pomodoro_create(&conn, "up", 0, "2026-01-01", 1_000).unwrap();
+        let a = pomodoro_add_lap(&conn, s.id, "A", 10_000, 10_000, 11_000).unwrap();
+        let b = pomodoro_add_lap(&conn, s.id, "B", 5_000, 15_000, 16_000).unwrap();
+        let c = pomodoro_add_lap(&conn, s.id, "C", 5_000, 20_000, 21_000).unwrap();
+        assert_eq!(b.idx, 2);
+
+        pomodoro_delete_lap(&conn, b.id).unwrap();
+        let laps = pomodoro_laps(&conn, s.id).unwrap();
+        assert_eq!(laps.iter().map(|l| l.id).collect::<Vec<_>>(), vec![a.id, c.id]);
+        assert_eq!(laps.iter().map(|l| l.idx).collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(pomodoro_get(&conn, s.id).unwrap().unwrap().lap_count, 2);
+
+        pomodoro_rename_lap(&conn, a.id, "写文档").unwrap();
+        assert_eq!(pomodoro_laps(&conn, s.id).unwrap()[0].label, "写文档");
+    }
+
+    #[test]
+    fn pomodoro_discard_removes_session_and_laps() {
+        let conn = setup();
+        let s = pomodoro_create(&conn, "down", 60_000, "2026-01-01", 1_000).unwrap();
+        pomodoro_add_lap(&conn, s.id, "节点 1", 1_000, 1_000, 2_000).unwrap();
+        pomodoro_discard(&conn, s.id).unwrap();
+        let laps: i64 = conn.query_row("SELECT COUNT(*) FROM pomodoro_lap", [], |r| r.get(0)).unwrap();
+        assert_eq!(laps, 0);
+        assert!(pomodoro_active(&conn).unwrap().is_none());
+        assert!(pomodoro_history(&conn, 10).unwrap().is_empty());
+    }
+}
 

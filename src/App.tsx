@@ -6,7 +6,7 @@ import { listen } from '@tauri-apps/api/event'
 import {
   StickyNote, ListTodo, Trash2, Clock, Plus, Search, Settings, Pin, PinOff,
   ExternalLink, Palette, Copy, Download, ArrowUpDown, Lock, LockOpen, Text, ListChecks,
-  LayoutGrid, Folder,
+  LayoutGrid, Folder, Timer,
 } from 'lucide-react'
 import './App.css'
 import type { Category, Note, TodoItem, TimelineEntry, ContextMenu, SortMode, PrivacyStatus } from './types'
@@ -845,6 +845,17 @@ function AppInner() {
                 title="时间轴"
               >
                 <Clock size={13} />
+              </button>
+              {/* 番茄钟入口(分隔线 + 图标):独立窗口,与便签主界面互不影响 */}
+              <div className="category-sep" />
+              <button
+                className="category-tool"
+                onClick={() => {
+                  invoke('open_pomodoro').catch((e) => showError(`打开番茄钟失败: ${e}`))
+                }}
+                title="番茄钟"
+              >
+                <Timer size={13} />
               </button>
               {/* 回收站入口(分隔线 + 图标,设置按钮上方) */}
               <div className="category-sep" />

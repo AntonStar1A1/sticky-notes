@@ -11,6 +11,7 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         note: resolve(__dirname, 'note.html'),
         capture: resolve(__dirname, 'capture.html'),
+        pomodoro: resolve(__dirname, 'pomodoro.html'),
       },
     },
   },

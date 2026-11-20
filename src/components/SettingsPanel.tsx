@@ -39,6 +39,7 @@ const SHORTCUT_LABELS: Record<string, string> = {
   new_note: '新建便签',
   clipboard_note: '剪贴板创建便签',
   capture: '闪电捕获',
+  pomodoro: '番茄钟',
 }
 
 /** 设置面板(spec 7.14):基本/安全/外观/快捷键/关于 分组 */

@@ -46,10 +46,11 @@ struct SetPrivacyReq {
     a2: String,
 }
 
-const DEFAULT_SHORTCUTS: [(&str, &str); 3] = [
+const DEFAULT_SHORTCUTS: [(&str, &str); 4] = [
     ("new_note", "Ctrl+Shift+N"),
     ("clipboard_note", "Ctrl+Shift+V"),
     ("capture", "Ctrl+Shift+Q"),
+    ("pomodoro", "Ctrl+Shift+P"),
 ];
 
 // ============ 数据目录解析(便携模式) ============
@@ -1111,6 +1112,12 @@ fn handle_shortcut(app: &tauri::AppHandle, kind: &str) {
                 let _ = show_capture(app2).await;
             });
         }
+        "pomodoro" => {
+            let app2 = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = open_pomodoro_window(&app2);
+            });
+        }
         _ => {}
     }
 }
@@ -1213,6 +1220,147 @@ async fn show_capture(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ============ commands: 番茄钟 ============
+
+/// 番茄钟窗口默认尺寸(与前端 src/pomodoro/prefs.ts 的 DEFAULT_PREFS 保持一致;
+/// 前端挂载后会按用户上次尺寸再校准一次)
+const POMODORO_W: f64 = 344.0;
+const POMODORO_H: f64 = 580.0;
+
+/// 打开(或唤起)独立的番茄钟窗口。
+/// Windows 上同步 command 里创建 WebviewWindow 会死锁(wry/WebView2 已知问题),因此声明为 async。
+#[tauri::command]
+async fn open_pomodoro(app: tauri::AppHandle) -> Result<(), String> {
+    open_pomodoro_window(&app).map_err(|e| e.to_string())
+}
+
+fn open_pomodoro_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    if let Some(w) = app.get_webview_window("pomodoro") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let (x, y) = centered_position(app, POMODORO_W, POMODORO_H);
+    let w = tauri::WebviewWindowBuilder::new(
+        app,
+        "pomodoro",
+        tauri::WebviewUrl::App("pomodoro.html".into()),
+    )
+    // 标题用 ASCII:WebView2 回写窗口标题时按 GB18030 处理会乱码(见 index.html 注释),
+    // 中文品牌名在窗口内部 UI 展示
+    .title("Pomodoro")
+    .inner_size(POMODORO_W, POMODORO_H)
+    .min_inner_size(258.0, 120.0)
+    .position(x, y)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .resizable(true)
+    .build()?;
+    let _ = w.show();
+    let _ = w.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn pomodoro_active(state: tauri::State<AppState>) -> Result<Option<db::PomodoroSession>, String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_active(&conn).map_err(|e| e.to_string())
+}
+
+/// 开始一次计时。时钟完全由前端传入(与计时引擎同一时间基准),Rust 只落库。
+#[tauri::command]
+fn pomodoro_start(
+    state: tauri::State<AppState>,
+    mode: String,
+    target_ms: i64,
+    day: String,
+    started_at_ms: i64,
+) -> Result<db::PomodoroSession, String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_create(&conn, &mode, target_ms, &day, started_at_ms).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_pause(state: tauri::State<AppState>, id: i64, accrued_ms: i64) -> Result<(), String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_pause(&conn, id, accrued_ms).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_resume(state: tauri::State<AppState>, id: i64, run_since_ms: i64) -> Result<(), String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_resume(&conn, id, run_since_ms).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_add_lap(
+    state: tauri::State<AppState>,
+    session_id: i64,
+    label: String,
+    lap_ms: i64,
+    total_ms: i64,
+    at_ms: i64,
+) -> Result<db::PomodoroLap, String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_add_lap(&conn, session_id, &label, lap_ms, total_ms, at_ms).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_rename_lap(state: tauri::State<AppState>, id: i64, label: String) -> Result<(), String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_rename_lap(&conn, id, &label).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_delete_lap(state: tauri::State<AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_delete_lap(&conn, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_finish(
+    state: tauri::State<AppState>,
+    id: i64,
+    elapsed_ms: i64,
+    completed: bool,
+    finished_at_ms: i64,
+) -> Result<(), String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_finish(&conn, id, elapsed_ms, completed, finished_at_ms).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_discard(state: tauri::State<AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_discard(&conn, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_laps(state: tauri::State<AppState>, session_id: i64) -> Result<Vec<db::PomodoroLap>, String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_laps(&conn, session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_history(state: tauri::State<AppState>, limit: i64) -> Result<Vec<db::PomodoroSession>, String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_history(&conn, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_delete_session(state: tauri::State<AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_delete_session(&conn, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pomodoro_stats(state: tauri::State<AppState>) -> Result<db::PomodoroStats, String> {
+    let conn = state.db.0.lock().unwrap();
+    db::pomodoro_stats(&conn).map_err(|e| e.to_string())
+}
+
 // ============ setup / 入口 ============
 
 fn main() {
@@ -1296,8 +1444,9 @@ fn main() {
             let new_text_item = MenuItem::with_id(app, "new_text", "新建文字便签", true, None::<&str>)?;
             let new_todo_item = MenuItem::with_id(app, "new_todo", "新建待办", true, None::<&str>)?;
             let capture_item = MenuItem::with_id(app, "capture", "快速记录", true, None::<&str>)?;
+            let pomodoro_item = MenuItem::with_id(app, "pomodoro", "番茄钟", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &new_text_item, &new_todo_item, &capture_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &new_text_item, &new_todo_item, &capture_item, &pomodoro_item, &quit_item])?;
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -1334,7 +1483,10 @@ fn main() {
             get_privacy_status, set_privacy_password, verify_privacy_password,
             change_privacy_password, reset_privacy_password,
             get_shortcuts, set_shortcut,
-            show_capture, save_capture
+            show_capture, save_capture,
+            open_pomodoro, pomodoro_active, pomodoro_start, pomodoro_pause, pomodoro_resume,
+            pomodoro_add_lap, pomodoro_rename_lap, pomodoro_delete_lap, pomodoro_finish,
+            pomodoro_discard, pomodoro_laps, pomodoro_history, pomodoro_delete_session, pomodoro_stats
         ])
         .on_menu_event(|app, event| {
             match event.id().as_ref() {
@@ -1356,6 +1508,13 @@ fn main() {
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let _ = show_capture(app).await;
+                    });
+                }
+                "pomodoro" => {
+                    // 菜单事件在主线程派发,同步建窗会死锁,同样丢到异步运行时
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = open_pomodoro_window(&app);
                     });
                 }
                 "quit" => {

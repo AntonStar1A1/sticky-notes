@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>番茄钟 · 设计预览</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 32px;
+        background: radial-gradient(1200px 500px at 20% 0%, #1d2029, #0d0e12 70%);
+        font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+        color: #c9c9d4;
+        min-height: 100vh;
+      }
+      h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.2px; margin: 0 0 4px; }
+      .sub { font-size: 11px; color: #6d6d7a; margin-bottom: 22px; line-height: 1.7; }
+      .stage { display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; }
+      .demo { display: flex; flex-direction: column; gap: 9px; }
+      .label { font-size: 11px; color: #7c7c8a; letter-spacing: 0.4px; }
+      .frame {
+        width: 344px;
+        height: 580px;
+        border: 0;
+        border-radius: 14px;
+        background: transparent;
+        box-shadow: 0 20px 54px rgba(0, 0, 0, 0.5);
+      }
+      .frame.mini { width: 300px; height: 132px; }
+      .side { max-width: 360px; font-size: 11px; color: #6d6d7a; line-height: 1.9; }
+      .side b { color: #9a9aa8; font-weight: 600; }
+      .side ul { margin: 6px 0 0; padding-left: 16px; }
+      .tip {
+        margin-top: 22px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        font-size: 11px;
+        color: #8b8b99;
+        line-height: 1.8;
+        max-width: 720px;
+      }
+      code { color: #ffb27a; font-family: Consolas, monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>番茄钟 · 独立窗口设计预览</h1>
+    <div class="sub">在浏览器里直接打开 <code>/pomodoro.html</code> 会用内存后端(数据存 localStorage),可完整走查交互</div>
+    <div class="stage">
+      <div class="demo">
+        <div class="label">计时视图 · 344 × 580</div>
+        <iframe class="frame" src="/pomodoro.html" title="番茄钟"></iframe>
+      </div>
+      <div class="demo">
+        <div class="label">迷你模式 · 300 × 132(<code>?mini=1</code>)</div>
+        <iframe class="frame mini" src="/pomodoro.html?mini=1" title="番茄钟(迷你)"></iframe>
+      </div>
+      <div class="side">
+        <b>结构</b>
+        <ul>
+          <li>标题栏:番茄标识 / 当前时间 / 置顶 / 迷你 / 最小化 / 关闭</li>
+          <li>环形计时:倒计时按目标进度,正计时按周期循环</li>
+          <li>模式:正计时 · 倒计时 + 5/15/25/45/60 分钟预设</li>
+          <li>操作:开始(暂停/继续) · 打点 · 结束 · 重置</li>
+          <li>节点列表:段内用时 / 累计用时 / 打点时刻,点击可重命名</li>
+          <li>底部:今日时长 · 番茄数 · 节点数 → 历史</li>
+        </ul>
+      </div>
+    </div>
+    <div class="tip">
+      键盘:空格 开始/暂停 · L 打点 · H 历史 · Esc 收起迷你或隐藏窗口;双击标题栏切换迷你模式。
+    </div>
+  </body>
+</html>

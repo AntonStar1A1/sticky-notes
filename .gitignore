@@ -33,5 +33,8 @@ src-tauri/target
 # AI tooling
 .mimocode/
 
+# 界面临时截图(browser 走查产物)
+browser-screenshots/
+
 # 开发文档(仅本地使用)
 docs/
