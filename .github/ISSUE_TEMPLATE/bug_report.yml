@@ -1,0 +1,60 @@
+name: 问题反馈
+description: 报告一个 Bug 或异常行为
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填全下面几项，尤其是**版本号**与**复现步骤**，能大幅缩短定位时间。
+        如果是番茄钟窗口的问题，请说明是「点 × / 最小化 / 快捷键」哪条路径。
+
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      placeholder: 例如 0.1.6（设置 → 关于 里可以看到）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式
+      options:
+        - NSIS 安装版（setup.exe）
+        - MSI 安装包
+        - 便携版（portable.zip）
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开 …
+        2. 点击 …
+        3. 看到 …
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 发生了什么；有报错请附完整文字
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+      description: 你原本预期会怎样
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 系统版本（Win10/11）、显示器缩放比例、是否装了其它置顶/截图/输入法工具、历史版本是否正常等；可拖入截图
