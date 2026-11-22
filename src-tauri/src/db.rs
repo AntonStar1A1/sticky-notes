@@ -969,6 +969,21 @@ pub fn pomodoro_resume(conn: &Connection, id: i64, run_since_ms: i64) -> Result<
     Ok(())
 }
 
+/// 把「进行中」的会话就地暂停:按墙上时钟把当前运行段折算进 elapsed_ms。
+/// 前端即将停止运行(关窗口、退出)时用它,续算口径才会停在那一刻;
+/// 已处于暂停态则原样返回,重复调用不会重复累加。
+pub fn pomodoro_pause_active(conn: &Connection, now_ms: i64) -> Result<Option<i64>> {
+    let Some(active) = pomodoro_active(conn)? else {
+        return Ok(None);
+    };
+    let Some(since) = active.run_since_ms else {
+        return Ok(Some(active.id));
+    };
+    let accrued = active.elapsed_ms + (now_ms - since).max(0);
+    pomodoro_pause(conn, active.id, accrued)?;
+    Ok(Some(active.id))
+}
+
 pub fn pomodoro_finish(
     conn: &Connection,
     id: i64,
@@ -1623,6 +1638,35 @@ mod pomodoro_tests {
 
         pomodoro_rename_lap(&conn, a.id, "写文档").unwrap();
         assert_eq!(pomodoro_laps(&conn, s.id).unwrap()[0].label, "写文档");
+    }
+
+    #[test]
+    /// 关窗/退出时调用的暂停:按墙上时钟折算当前运行段,且幂等
+    #[test]
+    fn pomodoro_pause_active_freezes_elapsed_at_close_time() {
+        let conn = setup();
+        let s = pomodoro_create(&conn, "down", 25 * 60_000, "2026-01-01", 1_000).unwrap();
+
+        // 运行段 1_000 → 61_000,关窗时应折算成 60s
+        let paused = pomodoro_pause_active(&conn, 61_000).unwrap();
+        assert_eq!(paused, Some(s.id));
+        let row = pomodoro_get(&conn, s.id).unwrap().unwrap();
+        assert_eq!(row.elapsed_ms, 60_000);
+        assert!(row.run_since_ms.is_none());
+
+        // 已暂停时再调一次不得重复累加
+        let again = pomodoro_pause_active(&conn, 900_000).unwrap();
+        assert_eq!(again, Some(s.id));
+        assert_eq!(pomodoro_get(&conn, s.id).unwrap().unwrap().elapsed_ms, 60_000);
+
+        // 继续后再关窗:从 60s 起算,再累计 30s
+        pomodoro_resume(&conn, s.id, 100_000).unwrap();
+        let _ = pomodoro_pause_active(&conn, 130_000).unwrap();
+        assert_eq!(pomodoro_get(&conn, s.id).unwrap().unwrap().elapsed_ms, 90_000);
+
+        // 没有进行中会话时返回 None,不报错
+        pomodoro_discard(&conn, s.id).unwrap();
+        assert_eq!(pomodoro_pause_active(&conn, 200_000).unwrap(), None);
     }
 
     #[test]

@@ -29,6 +29,11 @@ const MINI_HEIGHT = 132
 const MINUTE = 60_000
 const PRESETS = [5, 15, 25, 45, 60]
 
+/** 窗口操作失败不能静默吞掉:ACL 缺权限时(如把新窗口漏在 capabilities 之外)会走到这里 */
+const logWindowError = (action: string) => (e: unknown) => {
+  console.error(`番茄钟窗口操作失败(${action}):`, e)
+}
+
 type View = 'timer' | 'history'
 
 /** 独立窗口的番茄钟:正计时 / 倒计时 + 打点记录节点 + 历史归档 */
@@ -107,11 +112,13 @@ function PomodoroApp() {
     const miniStart = miniRef.current
     const width = miniStart ? MINI_WIDTH : p.width
     const height = miniStart ? MINI_HEIGHT : p.height
-    void win.setSize(new LogicalSize(width, height)).catch(() => {})
-    void win.setAlwaysOnTop(p.pinned).catch(() => {})
+    void win.setSize(new LogicalSize(width, height)).catch(logWindowError('setSize'))
+    void win.setAlwaysOnTop(p.pinned).catch(logWindowError('setAlwaysOnTop'))
   }, [])
 
   // 记住尺寸(迷你模式下的尺寸不覆盖正常尺寸;挂载时的程序化 setSize 也不写回)
+  // 关键:set_size 设的是「内尺寸」,所以这里必须用 innerSize() 取同名量;
+  // 若拿 onResized 的外尺寸回写,每次启动都会被外框再撑大一圈,窗口会逐次变大。
   useEffect(() => {
     if (!win) return
     const mountedAt = Date.now()
@@ -119,17 +126,22 @@ function PomodoroApp() {
     let unlisten: (() => void) | undefined
     let disposed = false
     void win
-      .onResized(({ payload }) => {
+      .onResized(() => {
         if (miniRef.current || Date.now() - mountedAt < 1200) return
         window.clearTimeout(timer)
         timer = window.setTimeout(() => {
           void (async () => {
             try {
               const scale = await win.scaleFactor()
-              const size = payload.toLogical(scale)
-              savePrefs({ width: Math.round(size.width), height: Math.round(size.height) })
-            } catch {
-              /* 忽略 */
+              const size = (await win.innerSize()).toLogical(scale)
+              const width = Math.round(size.width)
+              const height = Math.round(size.height)
+              // 兜底夹紧:避免异常尺寸把下次窗口撑到屏幕外
+              if (width >= 260 && width <= 1600 && height >= 300 && height <= 1600) {
+                savePrefs({ width, height })
+              }
+            } catch (e) {
+              logWindowError('innerSize')(e)
             }
           })()
         }, 400)
@@ -138,7 +150,7 @@ function PomodoroApp() {
         if (disposed) fn()
         else unlisten = fn
       })
-      .catch(() => {})
+      .catch(logWindowError('onResized'))
     return () => {
       disposed = true
       window.clearTimeout(timer)
@@ -150,7 +162,7 @@ function PomodoroApp() {
     const next = !pinned
     setPinned(next)
     savePrefs({ pinned: next })
-    void win?.setAlwaysOnTop(next).catch(() => {})
+    void win?.setAlwaysOnTop(next).catch(logWindowError('setAlwaysOnTop'))
   }, [pinned])
 
   const applyMini = useCallback((next: boolean) => {
@@ -161,7 +173,24 @@ function PomodoroApp() {
     const p = prefsRef.current
     const width = next ? MINI_WIDTH : p.width
     const height = next ? MINI_HEIGHT : p.height
-    void win.setSize(new LogicalSize(width, height)).catch(() => {})
+    void win.setSize(new LogicalSize(width, height)).catch(logWindowError('setSize'))
+  }, [])
+
+  /** 关闭窗口:走自定义命令(不受窗口 ACL 限制),关窗前 Rust 侧会把计时暂停存档。
+   *  命令万一失败,再退回窗口 API(close → hide),保证「×」在任何配置下都能收场。 */
+  const closeSelf = useCallback(() => {
+    void pomo.close().catch(async (err) => {
+      console.error('关闭番茄钟失败,回退到窗口 API:', err)
+      try {
+        await win?.close()
+      } catch {
+        try {
+          await win?.hide()
+        } catch (e) {
+          logWindowError('close-fallback')(e)
+        }
+      }
+    })
   }, [])
 
   const focusWindow = useCallback(async () => {
@@ -171,10 +200,10 @@ function PomodoroApp() {
       await win.setFocus()
       await win.requestUserAttention(UserAttentionType.Critical)
       window.setTimeout(() => {
-        void win.requestUserAttention(null).catch(() => {})
+        void win.requestUserAttention(null).catch(logWindowError('requestUserAttention'))
       }, 6000)
-    } catch {
-      /* 忽略 */
+    } catch (e) {
+      logWindowError('show/setFocus')(e)
     }
   }, [])
 
@@ -263,12 +292,12 @@ function PomodoroApp() {
         e.preventDefault()
         if (miniRef.current) applyMini(false)
         else if (view === 'history') setView('timer')
-        else void win?.hide().catch(() => {})
+        else closeSelf()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toggle, phase, addLap, applyMini, view])
+  }, [toggle, phase, addLap, applyMini, view, closeSelf])
 
   // 主题实时跟随(与其他窗口共享 localStorage)
   useEffect(() => {
@@ -336,16 +365,16 @@ function PomodoroApp() {
           <button
             type="button"
             className="pomo-win-btn"
-            onClick={() => void win?.minimize().catch(() => {})}
-            title="最小化"
+            onClick={() => void win?.minimize().catch(logWindowError('minimize'))}
+            title="最小化(计时继续)"
           >
             <Minus size={12} />
           </button>
           <button
             type="button"
             className="pomo-win-btn close"
-            onClick={() => void win?.hide().catch(() => {})}
-            title="关闭"
+            onClick={closeSelf}
+            title="关闭窗口(进行中的计时会暂停存档)"
           >
             <X size={12} />
           </button>

@@ -56,6 +56,10 @@ export function createMockApi(): PomoApi {
       /* 浏览器预览没有独立窗口可开 */
     },
 
+    async close() {
+      /* 浏览器预览没有独立窗口可关 */
+    },
+
     async active() {
       return db.sessions.find((s) => s.status === 'active') ?? null
     },

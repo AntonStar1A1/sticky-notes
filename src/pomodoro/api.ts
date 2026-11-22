@@ -6,6 +6,8 @@ import type { PomodoroLap, PomodoroMode, PomodoroSession, PomodoroStats } from '
 export interface PomoApi {
   /** 打开/唤起独立的番茄钟窗口(主界面与托盘入口用) */
   open(): Promise<void>
+  /** 关闭番茄钟窗口(先把进行中的计时暂停存档) */
+  close(): Promise<void>
   /** 当前进行中的会话(重开窗口/重启应用后恢复计时) */
   active(): Promise<PomodoroSession | null>
   start(mode: PomodoroMode, targetMs: number, day: string, startedAtMs: number): Promise<PomodoroSession>
@@ -27,6 +29,7 @@ export const isTauriRuntime =
 
 const tauriApi: PomoApi = {
   open: () => invoke('open_pomodoro'),
+  close: () => invoke('close_pomodoro_window'),
   active: () => invoke('pomodoro_active'),
   start: (mode, targetMs, day, startedAtMs) =>
     invoke('pomodoro_start', { mode, targetMs, day, startedAtMs }),

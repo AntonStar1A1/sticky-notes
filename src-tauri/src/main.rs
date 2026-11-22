@@ -1113,9 +1113,10 @@ fn handle_shortcut(app: &tauri::AppHandle, kind: &str) {
             });
         }
         "pomodoro" => {
+            // 快捷键:在前台则收起(同点叉),否则唤起/置前
             let app2 = app.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = open_pomodoro_window(&app2);
+                let _ = toggle_pomodoro_window(&app2);
             });
         }
         _ => {}
@@ -1258,9 +1259,56 @@ fn open_pomodoro_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     .always_on_top(true)
     .resizable(true)
     .build()?;
+    // 建窗后统一走一次「取消最小化 + 显示 + 聚焦」:个别环境(被最小化继承、
+    // 或上次会话遗留的窗口位置状态)会让新窗口以最小化态出现
+    let _ = w.unminimize();
     let _ = w.show();
     let _ = w.set_focus();
     Ok(())
+}
+
+/// 番茄钟窗口关闭前,把进行中的计时存成「暂停」。
+/// 窗口销毁后前端计时引擎不再运行,所以续算口径必须停在关窗这一刻;
+/// 下次打开窗口会按暂停态恢复,由用户决定继续 / 结束 / 重置。
+fn pause_pomodoro_for_close(app: &tauri::AppHandle) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let state = app.state::<AppState>();
+    // 具名绑定而非 if let 里的临时值:否则临时 MutexGuard 的析构晚于 state,借用检查过不去
+    let conn = match state.db.0.lock() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let _ = db::pomodoro_pause_active(&conn, now);
+}
+
+/// 关闭番茄钟窗口(标题栏「×」与 Esc 走这里)。
+/// 不依赖前端的 window.close():自定义命令不受窗口 ACL 限制,
+/// 即使以后新增窗口忘了登记 capabilities,关闭也一定能生效。
+/// 关窗前先把进行中的计时暂停存档,重开时从暂停处继续。
+#[tauri::command]
+fn close_pomodoro_window(window: tauri::Window) -> Result<(), String> {
+    pause_pomodoro_for_close(window.app_handle());
+    window.destroy().map_err(|e| e.to_string())
+}
+
+/// 全局快捷键 Ctrl+Shift+P:窗口在前台时收起(等同点叉),否则唤起/置前。
+fn toggle_pomodoro_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    if let Some(w) = app.get_webview_window("pomodoro") {
+        let focused = w.is_focused().unwrap_or(false);
+        let visible = w.is_visible().unwrap_or(false);
+        if focused && visible {
+            pause_pomodoro_for_close(app);
+            return w.destroy();
+        }
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    open_pomodoro_window(app)
 }
 
 #[tauri::command]
@@ -1484,7 +1532,7 @@ fn main() {
             change_privacy_password, reset_privacy_password,
             get_shortcuts, set_shortcut,
             show_capture, save_capture,
-            open_pomodoro, pomodoro_active, pomodoro_start, pomodoro_pause, pomodoro_resume,
+            open_pomodoro, close_pomodoro_window, pomodoro_active, pomodoro_start, pomodoro_pause, pomodoro_resume,
             pomodoro_add_lap, pomodoro_rename_lap, pomodoro_delete_lap, pomodoro_finish,
             pomodoro_discard, pomodoro_laps, pomodoro_history, pomodoro_delete_session, pomodoro_stats
         ])
@@ -1525,6 +1573,13 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 番茄钟是独立工具窗口:叉 = 真正关掉(销毁 webview),不像便签/管理台那样隐藏。
+                // 关窗前把进行中的计时暂停存档,否则窗口没了前端就不再跑,
+                // 重开时续算会把「关窗期间」也算进专注时长。
+                if window.label() == "pomodoro" {
+                    pause_pomodoro_for_close(window.app_handle());
+                    return; // 不 prevent_close,交给系统正常销毁
+                }
                 let _ = window.hide();
                 api.prevent_close();
                 // 便签窗口经系统途径关闭(Alt+F4 等)也是隐藏,通知管理器刷新「已打开」
