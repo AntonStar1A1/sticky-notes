@@ -551,6 +551,28 @@ button {
   animation: pomo-pulse 1.4s ease-in-out infinite;
 }
 
+/* 暂停时:当前这一段保留可见(不然暂停后这条记录整行消失),但去掉动效与红色高亮 */
+.lap-live-paused .lap-live-dot {
+  animation: none;
+  opacity: 0.5;
+  background: var(--fg-faint, #666);
+}
+
+.lap-live-paused .lap-dur {
+  color: var(--fg-dim, #a0a0a0);
+}
+
+.lap-live-paused .lap-meta {
+  color: var(--fg-faint, #666);
+}
+
+/* 节点标题旁的「+1 计时中 / +1 已暂停」提示 */
+.pomo-laps-pending {
+  margin-left: 3px;
+  font-size: 9.5px;
+  color: var(--fg-faint, #666);
+}
+
 .lap-input {
   width: 100%;
   padding: 1px 4px;

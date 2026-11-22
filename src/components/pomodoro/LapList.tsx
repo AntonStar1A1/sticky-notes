@@ -1,30 +1,37 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { PomodoroLap } from '../../types'
+import type { PomoPhase } from '../../hooks/usePomodoro'
 import { fmtHm, fmtSpan } from '../../pomodoro/format'
 
 interface Props {
   laps: PomodoroLap[]
   /** 当前会话累计毫秒,用于算「正在进行的这一段」 */
   elapsedMs: number
-  /** 计时中:末端显示「进行中」的实时节点 */
-  live: boolean
+  /**
+   * 计时状态。running 时末行是「进行中」的实时节点;paused 时同一行冻结为「已暂停」,
+   * 保证暂停后当前这一段仍然看得见(此前暂停会把未打点的这一段整行藏掉);idle 不显示。
+   */
+  phase: PomoPhase
   onRename: (id: number, label: string) => void
   onDelete: (id: number) => void
 }
 
-/** 节点列表:每打一次点记一段,显示段内用时 / 累计 / 打点时刻;末行是正在进行的这一段 */
-export default function LapList({ laps, elapsedMs, live, onRename, onDelete }: Props) {
+/** 节点列表:每打一次点记一段,显示段内用时 / 累计 / 打点时刻;末行是尚未打点的那一段 */
+export default function LapList({ laps, elapsedMs, phase, onRename, onDelete }: Props) {
   const listRef = useRef<HTMLUListElement>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // 新节点出现时滚到底部,始终能看到最新一段
+  const showPending = phase !== 'idle'
+  const pendingPaused = phase === 'paused'
+
+  // 新节点出现 / 暂停态切换时滚到底部,始终能看到最新一段
   useEffect(() => {
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [laps.length, live])
+  }, [laps.length, showPending, pendingPaused])
 
   useEffect(() => {
     if (editingId !== null) inputRef.current?.select()
@@ -88,14 +95,16 @@ export default function LapList({ laps, elapsedMs, live, onRename, onDelete }: P
         </li>
       ))}
 
-      {live && (
-        <li className="lap-row lap-live">
+      {showPending && (
+        <li className={`lap-row lap-live${pendingPaused ? ' lap-live-paused' : ''}`}>
           <span className="lap-idx">
             <span className="lap-live-dot" />
           </span>
           <div className="lap-body">
             <span className="lap-label">节点 {laps.length + 1}</span>
-            <span className="lap-meta">进行中 · 累计 {fmtSpan(elapsedMs)}</span>
+            <span className="lap-meta">
+              {pendingPaused ? '已暂停' : '进行中'} · 累计 {fmtSpan(elapsedMs)}
+            </span>
           </div>
           <span className="lap-dur">{fmtSpan(liveMs)}</span>
           <span className="lap-del lap-del-ghost" aria-hidden="true" />

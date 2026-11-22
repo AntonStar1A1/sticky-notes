@@ -1,6 +1,6 @@
 {
   "productName": "Sticky Notes",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "identifier": "com.stickynotes.app",
   "build": {
     "frontendDist": "../dist",

@@ -519,10 +519,13 @@ function PomodoroApp() {
                 <div className="pomo-laps-head">
                   <span>
                     节点 <b>{laps.length}</b>
+                    {phase !== 'idle' && (
+                      <span className="pomo-laps-pending"> +1 {phase === 'running' ? '计时中' : '已暂停'}</span>
+                    )}
                   </span>
                   <span className="pomo-laps-sum">累计 {fmtSpan(elapsedMs)}</span>
                 </div>
-                {laps.length === 0 && phase === 'idle' ? (
+                {phase === 'idle' && laps.length === 0 ? (
                   <div className="pomo-laps-empty">
                     开始计时后,按「打点」把过程切成节点
                     <span>每个节点会记录段内用时与打点时刻</span>
@@ -531,7 +534,7 @@ function PomodoroApp() {
                   <LapList
                     laps={laps}
                     elapsedMs={elapsedMs}
-                    live={running}
+                    phase={phase}
                     onRename={(id, label) => void renameLap(id, label)}
                     onDelete={(id) => void deleteLap(id)}
                   />
