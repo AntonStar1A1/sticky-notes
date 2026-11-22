@@ -73,7 +73,11 @@
 
 窗口内快捷键：`空格` 开始 / 暂停 · `L` 打点 · `H` 历史 · `Esc` 收起迷你或返回
 
-![番茄钟历史](screenshots/pomodoro-history.png)
+<p align="center">
+  <img src="screenshots/pomodoro-history.png" width="340" alt="番茄钟历史">
+  <br>
+  <sub>历史按天归档，展开可看当次的每个节点</sub>
+</p>
 
 计时口径说明：会话只存「已累计毫秒」与「当前运行段起点」，实际用时 = 累计 + 当前时间 − 起点。因此隐藏窗口、系统休眠、甚至重启应用后再次打开，计时都能无缝续上，不会因为渲染节流而漂移。
 
@@ -168,7 +172,7 @@ cargo test --offline
      "platforms": {
        "windows-x86_64": {
          "signature": "<.sig 文件内容>",
-         "url": "https://github.com/AntonStar1A1/sticky-notes/releases/download/v<版本>/Sticky.Notes_<版本>_x64-setup.exe"
+         "url": "https://github.com/AntonStar1A1/sticky-notes/releases/download/v<版本>/<安装包文件名>"
        }
      }
    }
